@@ -181,6 +181,91 @@ Before implementing a feature:
 
 ------------------------------------------------------------------------
 
+# Commit Message Convention
+
+This is an industry-standard convention used by many open-source and
+production projects. Every commit message must follow this format.
+
+Format:
+
+```text
+<type>(optional-scope): <short description>
+```
+
+Example:
+
+```text
+feat(auth): add JWT authentication
+```
+
+## Commit types
+
+### New feature
+
+```text
+feat(chat): implement conversation history
+feat(document): add PDF upload endpoint
+```
+
+### Bug fix
+
+```text
+fix(search): return correct similarity score
+```
+
+### Refactoring
+
+```text
+refactor(ai): extract LLM provider interface
+```
+
+### Performance
+
+```text
+perf(vector): optimize similarity search query
+```
+
+### Documentation
+
+```text
+docs(rulebook): add authentication standards
+```
+
+### Tests
+
+```text
+test(chat): add integration tests for chat service
+```
+
+### Chore
+
+```text
+chore: configure Spotless formatter
+```
+
+### Build
+
+```text
+build: configure Docker image
+```
+
+### CI
+
+```text
+ci: add GitHub Actions workflow
+```
+
+## Rules
+
+-   Use a short, imperative description (e.g. "add", not "added" or "adds").
+-   Scope is optional but preferred when the change is feature-specific
+    (auth, chat, document, search, ai, etc.).
+-   One logical change per commit when practical.
+-   AI agents and human contributors must follow this format for all
+    commits in this repository.
+
+------------------------------------------------------------------------
+
 # Current Technology Decisions
 
 Frontend: - React - TypeScript
