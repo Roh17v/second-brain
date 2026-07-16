@@ -1,0 +1,13 @@
+# Production profile.
+# Activate: --spring.profiles.active=prod
+spring:
+  jpa:
+    hibernate:
+      # Schema managed by migrations in production (Flyway later).
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    com.secondbrain: INFO

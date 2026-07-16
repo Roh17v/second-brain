@@ -1,0 +1,23 @@
+# Shared config for all profiles. No secrets. No host-specific values.
+# Values that change between environments come from environment variables.
+spring:
+  application:
+    name: second-brain
+  profiles:
+    default: dev
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  port: ${SERVER_PORT:8080}

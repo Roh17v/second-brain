@@ -1,0 +1,13 @@
+# Local / development profile (default).
+# Activate explicitly: --spring.profiles.active=dev
+spring:
+  jpa:
+    hibernate:
+      # Early development only. Move to validate + Flyway later.
+      ddl-auto: update
+    show-sql: false
+
+logging:
+  level:
+    root: INFO
+    com.secondbrain: DEBUG
