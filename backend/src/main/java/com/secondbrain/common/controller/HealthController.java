@@ -1,4 +1,4 @@
-package com.secondbrain.second_brain;
+package com.secondbrain.common.controller;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

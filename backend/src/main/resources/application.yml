@@ -1,4 +1,4 @@
-# Shared config for all profiles. No secrets. No host-specific values.
+# Shared config for all profiles. No secrets in this file.
 # Values that change between environments come from environment variables.
 spring:
   application:
@@ -7,9 +7,12 @@ spring:
     default: dev
 
   datasource:
+    # Single connection string (URL can include user + password).
+    # Example:
+    #   jdbc:postgresql://localhost:5432/secondbrain?user=postgres&password=your_password
+    #
+    # Do NOT use Node-style URLs (postgresql://user:pass@host/db) — JDBC needs the form above.
     url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -21,3 +24,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+# JWT — secret must come from environment (min ~32 chars for HS256)
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}

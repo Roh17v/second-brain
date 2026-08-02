@@ -93,21 +93,42 @@ Storage - Local storage initially
 
 # Project Structure
 
--   common/
--   auth/
--   users/
--   workspace/
--   documents/
--   chat/
--   search/
--   ai/
--   storage/
--   knowledge/          (future --- see Knowledge Layer)
--   infrastructure/
--   config/
+Use **feature-based packaging** (package-by-feature), not a global
+`controller/` / `service/` / `repository/` split across the whole app.
 
-Organize primarily by feature, while keeping clean architecture
-boundaries within each feature.
+Shared:
+
+-   `config/` --- Spring configuration
+-   `common/` --- exceptions, shared response types, utilities
+-   `security/` --- JWT filters and security infrastructure
+
+Features (each self-contained):
+
+-   `auth/` --- register, login, token issuance
+-   `user/` --- user profile and user domain
+-   `workspace/` --- workspaces
+-   `document/` --- uploads and document metadata
+-   `chat/` --- conversations and messages
+-   `embedding/` --- embedding generation and storage hooks
+-   `retrieval/` --- semantic / hybrid retrieval
+-   `llm/` --- LLM provider abstraction
+-   `storage/` --- file storage abstraction
+-   `knowledge/` --- future knowledge-layer module
+
+Within a feature, use layers as needed:
+
+```text
+user/
+  controller/
+  service/
+  repository/
+  entity/
+  dto/
+  mapper/
+```
+
+Keep controllers thin. Business logic stays in services. Do not expose
+entities as API responses; map through DTOs.
 
 ------------------------------------------------------------------------
 
@@ -163,8 +184,8 @@ Rules:
 -   Support multiple Spring profiles (`dev`, `prod`) from the beginning.
 -   Avoid hardcoded URLs, ports, credentials, and API keys in committed
     source.
--   Typical variables (expand as the system grows): `DB_URL`,
-    `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `OLLAMA_BASE_URL`,
+-   Typical variables (expand as the system grows): `DB_URL` (JDBC URL;
+    may embed user and password), `JWT_SECRET`, `OLLAMA_BASE_URL`,
     `FILE_STORAGE_PATH`, `SERVER_PORT`.
 -   Pattern: **everything that changes between environments comes from
     environment variables.**

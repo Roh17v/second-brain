@@ -1,4 +1,4 @@
-package com.secondbrain.second_brain;
+package com.secondbrain;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,5 +11,4 @@ class SecondBrainApplicationTests {
 	@Test
 	void contextLoads() {
 	}
-
 }

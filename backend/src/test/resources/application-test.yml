@@ -12,3 +12,9 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+
+app:
+  jwt:
+    secret: test-only-jwt-secret-key-min-32-chars-long!!
+    expiration-ms: 3600000
+
