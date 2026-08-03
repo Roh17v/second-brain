@@ -46,3 +46,6 @@ application-local.properties
 # Local uploaded files (not the Java package com.secondbrain.storage)
 /storage/
 /backend/storage/
+
+# Downloaded sample notes for manual API testing (not product source)
+/sample-docs/
