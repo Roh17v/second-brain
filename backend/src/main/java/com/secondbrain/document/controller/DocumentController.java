@@ -15,7 +15,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.secondbrain.document.dto.DocumentChunkResponse;
 import com.secondbrain.document.dto.DocumentResponse;
+import com.secondbrain.document.service.DocumentIngestionService;
 import com.secondbrain.document.service.DocumentService;
 
 @RestController
@@ -23,9 +25,14 @@ import com.secondbrain.document.service.DocumentService;
 public class DocumentController {
 
 	private final DocumentService documentService;
+	private final DocumentIngestionService documentIngestionService;
 
-	public DocumentController(DocumentService documentService) {
+	public DocumentController(
+			DocumentService documentService,
+			DocumentIngestionService documentIngestionService
+	) {
 		this.documentService = documentService;
+		this.documentIngestionService = documentIngestionService;
 	}
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -48,6 +55,25 @@ public class DocumentController {
 			@PathVariable UUID documentId
 	) {
 		return documentService.getById(workspaceId, documentId);
+	}
+
+	/**
+	 * Parse file text, chunk it, and store chunks. Does not create embeddings yet.
+	 */
+	@PostMapping("/{documentId}/process")
+	public DocumentResponse process(
+			@PathVariable UUID workspaceId,
+			@PathVariable UUID documentId
+	) {
+		return documentIngestionService.process(workspaceId, documentId);
+	}
+
+	@GetMapping("/{documentId}/chunks")
+	public List<DocumentChunkResponse> listChunks(
+			@PathVariable UUID workspaceId,
+			@PathVariable UUID documentId
+	) {
+		return documentIngestionService.listChunks(workspaceId, documentId);
 	}
 
 	@DeleteMapping("/{documentId}")
