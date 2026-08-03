@@ -8,7 +8,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
@@ -39,7 +38,8 @@ public class DocumentChunk {
 	@Column(name = "chunk_index", nullable = false)
 	private int chunkIndex;
 
-	@Lob
+	// Do NOT use @Lob with PostgreSQL — Hibernate may map it to OID and
+	// native SQL will return large-object ids (e.g. "53634711") instead of text.
 	@Column(nullable = false, columnDefinition = "TEXT")
 	private String content;
 
