@@ -43,6 +43,6 @@ logs/
 application-local.yml
 application-local.properties
 
-# Local uploaded files
-storage/
-backend/storage/
+# Local uploaded files (not the Java package com.secondbrain.storage)
+/storage/
+/backend/storage/
