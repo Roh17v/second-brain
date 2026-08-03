@@ -37,3 +37,10 @@ app:
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
   storage:
     base-path: ${FILE_STORAGE_PATH:./storage}
+  embedding:
+    # ollama (default) or hashing (offline/tests only)
+    provider: ${EMBEDDING_PROVIDER:ollama}
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    model: ${EMBEDDING_MODEL:nomic-embed-text}
+    # nomic-embed-text = 768 dimensions
+    dimensions: ${EMBEDDING_DIMENSIONS:768}

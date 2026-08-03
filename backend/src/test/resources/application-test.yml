@@ -17,4 +17,10 @@ app:
   jwt:
     secret: test-only-jwt-secret-key-min-32-chars-long!!
     expiration-ms: 3600000
+  embedding:
+    provider: hashing
+    model: hashing-test
+    dimensions: 32
+  storage:
+    base-path: ${java.io.tmpdir}/secondbrain-test-storage
 
