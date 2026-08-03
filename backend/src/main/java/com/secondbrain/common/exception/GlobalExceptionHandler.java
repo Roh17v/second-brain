@@ -78,6 +78,17 @@ public class GlobalExceptionHandler {
 		return body(HttpStatus.BAD_REQUEST, ex.getMessage());
 	}
 
+	@ExceptionHandler(BadRequestException.class)
+	public ResponseEntity<Map<String, Object>> handleBadRequest(BadRequestException ex) {
+		return body(HttpStatus.BAD_REQUEST, ex.getMessage());
+	}
+
+	@ExceptionHandler(StorageException.class)
+	public ResponseEntity<Map<String, Object>> handleStorage(StorageException ex) {
+		log.error("Storage error", ex);
+		return body(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+	}
+
 	@ExceptionHandler(DataAccessException.class)
 	public ResponseEntity<Map<String, Object>> handleDataAccess(DataAccessException ex) {
 		log.error("Database error", ex);

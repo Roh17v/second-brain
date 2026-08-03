@@ -42,3 +42,7 @@ logs/
 # Spring Boot local overrides
 application-local.yml
 application-local.properties
+
+# Local uploaded files
+storage/
+backend/storage/

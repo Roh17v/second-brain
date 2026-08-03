@@ -83,7 +83,12 @@ public class WorkspaceService {
 		workspaceRepository.save(workspace);
 	}
 
-	private Workspace requireOwnedWorkspace(UUID id) {
+	/**
+	 * Ensures the workspace exists, is not deleted, and belongs to the current user.
+	 * Used by other features (e.g. documents) that attach data to a workspace.
+	 */
+	@Transactional(readOnly = true)
+	public Workspace requireOwnedWorkspace(UUID id) {
 		UserPrincipal currentUser = SecurityUtils.requireCurrentUser();
 		return workspaceRepository
 				.findByIdAndOwnerIdAndDeletedAtIsNull(id, currentUser.getId())

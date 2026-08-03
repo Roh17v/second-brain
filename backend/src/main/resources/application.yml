@@ -22,6 +22,11 @@ spring:
         jdbc:
           time_zone: UTC
 
+  servlet:
+    multipart:
+      max-file-size: ${MAX_FILE_SIZE:20MB}
+      max-request-size: ${MAX_REQUEST_SIZE:25MB}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -30,3 +35,5 @@ app:
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  storage:
+    base-path: ${FILE_STORAGE_PATH:./storage}
