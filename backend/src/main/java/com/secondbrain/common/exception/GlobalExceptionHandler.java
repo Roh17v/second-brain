@@ -5,17 +5,25 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	@ExceptionHandler(ResourceNotFoundException.class)
 	public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {
@@ -50,14 +58,48 @@ public class GlobalExceptionHandler {
 		return body(HttpStatus.BAD_REQUEST, message);
 	}
 
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<Map<String, Object>> handleUnreadable(HttpMessageNotReadableException ex) {
+		return body(HttpStatus.BAD_REQUEST, "Request body is missing or invalid JSON");
+	}
+
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+		return body(HttpStatus.BAD_REQUEST, "Invalid value for parameter: " + ex.getName());
+	}
+
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	public ResponseEntity<Map<String, Object>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+		return body(HttpStatus.METHOD_NOT_ALLOWED, ex.getMessage());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
 		return body(HttpStatus.BAD_REQUEST, ex.getMessage());
 	}
 
+	@ExceptionHandler(DataAccessException.class)
+	public ResponseEntity<Map<String, Object>> handleDataAccess(DataAccessException ex) {
+		log.error("Database error", ex);
+		return body(HttpStatus.INTERNAL_SERVER_ERROR, rootMessage(ex));
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
-		return body(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error");
+		log.error("Unhandled error", ex);
+		return body(HttpStatus.INTERNAL_SERVER_ERROR, rootMessage(ex));
+	}
+
+	private static String rootMessage(Throwable ex) {
+		Throwable current = ex;
+		while (current.getCause() != null && current.getCause() != current) {
+			current = current.getCause();
+		}
+		String message = current.getMessage();
+		if (message == null || message.isBlank()) {
+			return current.getClass().getSimpleName();
+		}
+		return message;
 	}
 
 	private ResponseEntity<Map<String, Object>> body(HttpStatus status, String message) {
