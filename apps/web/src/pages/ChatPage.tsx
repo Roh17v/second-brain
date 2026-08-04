@@ -222,10 +222,15 @@ export default function ChatPage() {
             const answer = data as unknown as ChatAnswer
             setModel(answer.model)
             setMessages((prev) => {
-              const withoutTemps = prev.filter(
-                (m) => m.id !== tempUserId && m.id !== tempAssistantId,
+              // Drop temp bubbles. Also drop the user message already applied by the
+              // "user" event so we don't render the question twice.
+              const cleaned = prev.filter(
+                (m) =>
+                  m.id !== tempUserId &&
+                  m.id !== tempAssistantId &&
+                  m.id !== answer.userMessage.id,
               )
-              return [...withoutTemps, answer.userMessage, answer.assistantMessage]
+              return [...cleaned, answer.userMessage, answer.assistantMessage]
             })
           }
 
@@ -246,10 +251,13 @@ export default function ChatPage() {
               const answer = data as unknown as ChatAnswer
               setModel(answer.model)
               setMessages((prev) => {
-                const withoutTemps = prev.filter(
-                  (m) => m.id !== tempUserId && m.id !== tempAssistantId,
+                const cleaned = prev.filter(
+                  (m) =>
+                    m.id !== tempUserId &&
+                    m.id !== tempAssistantId &&
+                    m.id !== answer.userMessage.id,
                 )
-                return [...withoutTemps, answer.userMessage, answer.assistantMessage]
+                return [...cleaned, answer.userMessage, answer.assistantMessage]
               })
             }
             if (parsed.eventName === 'error') {
