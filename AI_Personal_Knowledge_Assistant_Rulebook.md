@@ -62,15 +62,23 @@ Core principles:
 
 # Architecture
 
-Frontend - React + TypeScript
+Frontend - React + TypeScript (Vite SPA under `apps/web`)
 
-Backend - Spring Boot
+Backend - Spring Boot (`backend/`)
 
 Database - PostgreSQL - pgvector
 
 LLM - Ollama - Qwen 3 4B
 
 Storage - Local storage initially
+
+Monorepo layout:
+
+```text
+apps/web      — web client
+apps/mobile   — future mobile client
+backend/      — Spring Boot API
+```
 
 ------------------------------------------------------------------------
 

@@ -2,6 +2,14 @@
 target/
 build/
 out/
+node_modules/
+dist/
+apps/**/dist/
+apps/**/node_modules/
+
+# Frontend local env (keep .env.example)
+apps/**/.env
+!apps/**/.env.example
 *.class
 *.jar
 *.war
