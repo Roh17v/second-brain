@@ -21,6 +21,9 @@ app:
     provider: hashing
     model: hashing-test
     dimensions: 32
+  llm:
+    provider: echo
+    model: echo-llm
   storage:
     base-path: ${java.io.tmpdir}/secondbrain-test-storage
 

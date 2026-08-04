@@ -44,3 +44,10 @@ app:
     model: ${EMBEDDING_MODEL:nomic-embed-text}
     # nomic-embed-text = 768 dimensions
     dimensions: ${EMBEDDING_DIMENSIONS:768}
+  llm:
+    # ollama (default) or echo (tests/offline)
+    provider: ${LLM_PROVIDER:ollama}
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    # Pull a local model, e.g. `ollama pull qwen3:4b` (or set the tag you have)
+    model: ${LLM_MODEL:qwen3:4b}
+    temperature: ${LLM_TEMPERATURE:0.2}
