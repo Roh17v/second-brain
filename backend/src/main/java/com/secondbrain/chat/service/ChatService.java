@@ -159,6 +159,7 @@ public class ChatService {
 		}
 
 		SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+		java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
 
 		streamExecutor.execute(() -> {
 			try {
@@ -176,31 +177,49 @@ public class ChatService {
 						sendEvent(emitter, "token", Map.of("delta", delta));
 					}
 					catch (IOException ex) {
-						throw new IllegalStateException("SSE send failed", ex);
+						// Client disconnected mid-stream; stop generating further events.
+						throw new IllegalStateException("SSE client disconnected", ex);
 					}
 				});
 
 				ChatAnswerResponse done = transactionTemplate.execute(status -> finalizeTurn(turn, full.toString()));
 				sendEvent(emitter, "done", done);
-				emitter.complete();
+				completeQuietly(emitter, completed);
 			}
 			catch (Exception ex) {
 				log.error("Streaming chat failed", ex);
 				try {
-					sendEvent(emitter, "error", Map.of(
-							"message", ex.getMessage() == null ? "Streaming failed" : ex.getMessage()
-					));
-					emitter.complete();
+					if (!completed.get()) {
+						sendEvent(emitter, "error", Map.of(
+								"message", ex.getMessage() == null ? "Streaming failed" : ex.getMessage()
+						));
+					}
 				}
 				catch (Exception ignored) {
-					emitter.completeWithError(ex);
+					// ignore secondary send failures
 				}
+				completeQuietly(emitter, completed);
 			}
 		});
 
-		emitter.onTimeout(emitter::complete);
-		emitter.onError(ex -> log.debug("SSE error: {}", ex.toString()));
+		emitter.onTimeout(() -> completeQuietly(emitter, completed));
+		emitter.onError(ex -> {
+			log.debug("SSE connection closed: {}", ex.toString());
+			completed.set(true);
+		});
+		emitter.onCompletion(() -> completed.set(true));
 		return emitter;
+	}
+
+	private static void completeQuietly(SseEmitter emitter, java.util.concurrent.atomic.AtomicBoolean completed) {
+		if (completed.compareAndSet(false, true)) {
+			try {
+				emitter.complete();
+			}
+			catch (Exception ignored) {
+				// already completed/closed
+			}
+		}
 	}
 
 	@Transactional
@@ -297,9 +316,10 @@ public class ChatService {
 	}
 
 	private void sendEvent(SseEmitter emitter, String name, Object data) throws IOException {
+		// Pass the object directly so Spring serializes once (avoid double-encoded JSON strings).
 		emitter.send(SseEmitter.event()
 				.name(name)
-				.data(objectMapper.writeValueAsString(data), MediaType.APPLICATION_JSON));
+				.data(data, MediaType.APPLICATION_JSON));
 	}
 
 	private List<LlmMessage> toLlmHistory(List<ChatMessage> history, String currentUserPromptWithContext) {

@@ -12,6 +12,21 @@ import { useAuth } from '../auth/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
 
+function parseSseChunk(raw: string): { eventName: string; data: string } | null {
+  const lines = raw.split('\n')
+  let eventName = 'message'
+  const dataLines: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
+    }
+  }
+  if (dataLines.length === 0) return null
+  return { eventName, data: dataLines.join('\n') }
+}
+
 export default function ChatPage() {
   const { workspaceId } = useParams()
   const { token } = useAuth()
@@ -119,6 +134,9 @@ export default function ChatPage() {
       },
     ])
 
+    let gotDone = false
+    let streamError: string | null = null
+
     try {
       const response = await fetch(
         `${API_BASE}/api/workspaces/${workspaceId}/conversations/${activeId}/messages/stream`,
@@ -147,49 +165,50 @@ export default function ChatPage() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let streamError: string | null = null
 
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
+        let readResult: ReadableStreamReadResult<Uint8Array>
+        try {
+          readResult = await reader.read()
+        } catch (readErr) {
+          // Browsers often throw a network error when the SSE connection closes after complete.
+          if (gotDone) break
+          throw readErr
+        }
 
+        const { done, value } = readResult
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
         const parts = buffer.split('\n\n')
         buffer = parts.pop() ?? ''
 
         for (const part of parts) {
-          const lines = part.split('\n')
-          let eventName = 'message'
-          let dataLine = ''
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              eventName = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              dataLine += line.slice(5).trim()
-            }
+          const parsed = parseSseChunk(part)
+          if (!parsed) continue
+
+          let data: Record<string, unknown>
+          try {
+            data = JSON.parse(parsed.data) as Record<string, unknown>
+          } catch {
+            // Skip malformed frame
+            continue
           }
-          if (!dataLine) continue
 
-          const data = JSON.parse(dataLine) as Record<string, unknown>
-
-          if (eventName === 'user') {
+          if (parsed.eventName === 'user') {
             const userMessage = data.userMessage as ChatMessage
             const citations = (data.citations as Citation[]) || []
             if (data.model) setModel(String(data.model))
             setMessages((prev) =>
               prev.map((m) => {
-                if (m.id === tempUserId) {
-                  return { ...userMessage, citations: [] }
-                }
-                if (m.id === tempAssistantId) {
-                  return { ...m, citations }
-                }
+                if (m.id === tempUserId) return { ...userMessage, citations: [] }
+                if (m.id === tempAssistantId) return { ...m, citations }
                 return m
               }),
             )
           }
 
-          if (eventName === 'token') {
+          if (parsed.eventName === 'token') {
             const delta = String(data.delta ?? '')
             setMessages((prev) =>
               prev.map((m) =>
@@ -198,35 +217,62 @@ export default function ChatPage() {
             )
           }
 
-          if (eventName === 'done') {
+          if (parsed.eventName === 'done') {
+            gotDone = true
             const answer = data as unknown as ChatAnswer
             setModel(answer.model)
             setMessages((prev) => {
               const withoutTemps = prev.filter(
                 (m) => m.id !== tempUserId && m.id !== tempAssistantId,
               )
-              return [
-                ...withoutTemps,
-                answer.userMessage,
-                answer.assistantMessage,
-              ]
+              return [...withoutTemps, answer.userMessage, answer.assistantMessage]
             })
           }
 
-          if (eventName === 'error') {
+          if (parsed.eventName === 'error') {
             streamError = String(data.message ?? 'Streaming failed')
           }
         }
       }
 
-      if (streamError) {
+      // Flush any trailing event without trailing blank line
+      if (buffer.trim() && !gotDone) {
+        const parsed = parseSseChunk(buffer)
+        if (parsed) {
+          try {
+            const data = JSON.parse(parsed.data) as Record<string, unknown>
+            if (parsed.eventName === 'done') {
+              gotDone = true
+              const answer = data as unknown as ChatAnswer
+              setModel(answer.model)
+              setMessages((prev) => {
+                const withoutTemps = prev.filter(
+                  (m) => m.id !== tempUserId && m.id !== tempAssistantId,
+                )
+                return [...withoutTemps, answer.userMessage, answer.assistantMessage]
+              })
+            }
+            if (parsed.eventName === 'error') {
+              streamError = String(data.message ?? 'Streaming failed')
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (streamError && !gotDone) {
         throw new Error(streamError)
       }
 
       await loadConversations()
     } catch (err) {
+      // Ignore benign close errors after a successful done event
+      if (gotDone) {
+        await loadConversations().catch(() => undefined)
+        return
+      }
       setError(err instanceof Error ? err.message : 'Chat failed')
-      // Drop empty streaming assistant bubble on failure
       setMessages((prev) =>
         prev.filter((m) => !(m.id === tempAssistantId && m.content === '')),
       )
@@ -308,7 +354,8 @@ export default function ChatPage() {
                 </button>
               </form>
               <p className="muted">
-                Answers stream token-by-token from Ollama. First token can still take a bit.
+                Answers stream as tokens arrive. Total time can still be long on CPU; first
+                tokens should appear sooner.
               </p>
             </>
           )}
