@@ -1,13 +1,13 @@
 package com.secondbrain.ai.llm;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.function.Consumer;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Deterministic offline LLM for tests.
+ * Deterministic offline LLM for tests (supports streaming token simulation).
  */
 @Component
 @ConditionalOnProperty(name = "app.llm.provider", havingValue = "echo")
@@ -24,6 +24,16 @@ public class EchoLlmClient implements LlmClient {
 				+ (systemPrompt != null && systemPrompt.contains("[1]")
 				? " Sources were provided."
 				: " No sources.");
+	}
+
+	@Override
+	public void streamChat(String systemPrompt, List<LlmMessage> messages, Consumer<String> onToken) {
+		String full = chat(systemPrompt, messages);
+		for (String part : full.split("(?<=\\s)")) {
+			if (!part.isEmpty()) {
+				onToken.accept(part);
+			}
+		}
 	}
 
 	@Override

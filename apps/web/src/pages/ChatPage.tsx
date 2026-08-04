@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { apiRequest } from '../api/client'
 import type {
@@ -6,8 +6,11 @@ import type {
   Conversation,
   ConversationDetail,
   ChatMessage,
+  Citation,
 } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
 
 export default function ChatPage() {
   const { workspaceId } = useParams()
@@ -19,6 +22,7 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [model, setModel] = useState<string | null>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   async function loadConversations() {
     if (!workspaceId) return
@@ -59,6 +63,12 @@ export default function ChatPage() {
     )
   }, [activeId, workspaceId, token])
 
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [messages])
+
   async function createConversation() {
     if (!workspaceId) return
     setError(null)
@@ -81,24 +91,145 @@ export default function ChatPage() {
 
   async function onSend(e: FormEvent) {
     e.preventDefault()
-    if (!workspaceId || !activeId || !input.trim()) return
+    if (!workspaceId || !activeId || !input.trim() || !token) return
+
+    const text = input.trim()
     setSending(true)
     setError(null)
+    setInput('')
+
+    const tempUserId = `temp-user-${Date.now()}`
+    const tempAssistantId = `temp-assistant-${Date.now()}`
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: tempUserId,
+        role: 'USER',
+        content: text,
+        createdAt: new Date().toISOString(),
+        citations: [],
+      },
+      {
+        id: tempAssistantId,
+        role: 'ASSISTANT',
+        content: '',
+        createdAt: new Date().toISOString(),
+        citations: [],
+      },
+    ])
+
     try {
-      const answer = await apiRequest<ChatAnswer>(
-        `/api/workspaces/${workspaceId}/conversations/${activeId}/messages`,
+      const response = await fetch(
+        `${API_BASE}/api/workspaces/${workspaceId}/conversations/${activeId}/messages/stream`,
         {
           method: 'POST',
-          body: JSON.stringify({ message: input.trim(), topK: 5 }),
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ message: text, topK: 5 }),
         },
-        token,
       )
-      setMessages((prev) => [...prev, answer.userMessage, answer.assistantMessage])
-      setModel(answer.model)
-      setInput('')
+
+      if (!response.ok || !response.body) {
+        const errText = await response.text()
+        let message = response.statusText
+        try {
+          message = JSON.parse(errText).message || message
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message || 'Stream failed')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let streamError: string | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          const lines = part.split('\n')
+          let eventName = 'message'
+          let dataLine = ''
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventName = line.slice(6).trim()
+            } else if (line.startsWith('data:')) {
+              dataLine += line.slice(5).trim()
+            }
+          }
+          if (!dataLine) continue
+
+          const data = JSON.parse(dataLine) as Record<string, unknown>
+
+          if (eventName === 'user') {
+            const userMessage = data.userMessage as ChatMessage
+            const citations = (data.citations as Citation[]) || []
+            if (data.model) setModel(String(data.model))
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id === tempUserId) {
+                  return { ...userMessage, citations: [] }
+                }
+                if (m.id === tempAssistantId) {
+                  return { ...m, citations }
+                }
+                return m
+              }),
+            )
+          }
+
+          if (eventName === 'token') {
+            const delta = String(data.delta ?? '')
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAssistantId ? { ...m, content: m.content + delta } : m,
+              ),
+            )
+          }
+
+          if (eventName === 'done') {
+            const answer = data as unknown as ChatAnswer
+            setModel(answer.model)
+            setMessages((prev) => {
+              const withoutTemps = prev.filter(
+                (m) => m.id !== tempUserId && m.id !== tempAssistantId,
+              )
+              return [
+                ...withoutTemps,
+                answer.userMessage,
+                answer.assistantMessage,
+              ]
+            })
+          }
+
+          if (eventName === 'error') {
+            streamError = String(data.message ?? 'Streaming failed')
+          }
+        }
+      }
+
+      if (streamError) {
+        throw new Error(streamError)
+      }
+
       await loadConversations()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Chat failed')
+      // Drop empty streaming assistant bubble on failure
+      setMessages((prev) =>
+        prev.filter((m) => !(m.id === tempAssistantId && m.content === '')),
+      )
     } finally {
       setSending(false)
     }
@@ -114,7 +245,7 @@ export default function ChatPage() {
       </div>
 
       {error && <div className="error">{error}</div>}
-      {model && <p className="muted">Last answer model: {model}</p>}
+      {model && <p className="muted">Last answer model: {model} (streaming)</p>}
 
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="card" style={{ width: 260 }}>
@@ -143,13 +274,15 @@ export default function ChatPage() {
             <p className="muted">Select or create a conversation.</p>
           ) : (
             <>
-              <div className="chat-log">
+              <div className="chat-log" ref={logRef}>
                 {messages.map((m) => (
                   <div
                     key={m.id}
                     className={`bubble ${m.role === 'USER' ? 'user' : 'assistant'}`}
                   >
-                    <div>{m.content}</div>
+                    <div>
+                      {m.content || (sending && m.role === 'ASSISTANT' ? '…' : '')}
+                    </div>
                     {m.citations?.length > 0 && (
                       <div className="citations">
                         Sources:{' '}
@@ -171,11 +304,11 @@ export default function ChatPage() {
                   disabled={sending}
                 />
                 <button className="btn" type="submit" disabled={sending || !input.trim()}>
-                  {sending ? 'Thinking…' : 'Send'}
+                  {sending ? 'Streaming…' : 'Send'}
                 </button>
               </form>
               <p className="muted">
-                First answer can take a while while Ollama generates locally.
+                Answers stream token-by-token from Ollama. First token can still take a bit.
               </p>
             </>
           )}

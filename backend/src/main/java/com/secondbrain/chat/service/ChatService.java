@@ -1,14 +1,24 @@
 package com.secondbrain.chat.service;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secondbrain.ai.llm.LlmClient;
 import com.secondbrain.ai.llm.LlmMessage;
 import com.secondbrain.chat.dto.ChatAnswerResponse;
@@ -38,8 +48,11 @@ import com.secondbrain.workspace.service.WorkspaceService;
 @Service
 public class ChatService {
 
+	private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+
 	private static final int DEFAULT_TOP_K = 5;
 	private static final int MAX_HISTORY_MESSAGES = 12;
+	private static final long SSE_TIMEOUT_MS = 10 * 60 * 1000L;
 
 	private final WorkspaceService workspaceService;
 	private final ConversationRepository conversationRepository;
@@ -49,6 +62,9 @@ public class ChatService {
 	private final DocumentRepository documentRepository;
 	private final LlmClient llmClient;
 	private final RagPromptBuilder promptBuilder;
+	private final TransactionTemplate transactionTemplate;
+	private final ObjectMapper objectMapper;
+	private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
 
 	public ChatService(
 			WorkspaceService workspaceService,
@@ -58,7 +74,9 @@ public class ChatService {
 			EmbeddingService embeddingService,
 			DocumentRepository documentRepository,
 			LlmClient llmClient,
-			RagPromptBuilder promptBuilder
+			RagPromptBuilder promptBuilder,
+			PlatformTransactionManager transactionManager,
+			ObjectMapper objectMapper
 	) {
 		this.workspaceService = workspaceService;
 		this.conversationRepository = conversationRepository;
@@ -68,6 +86,8 @@ public class ChatService {
 		this.documentRepository = documentRepository;
 		this.llmClient = llmClient;
 		this.promptBuilder = promptBuilder;
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
+		this.objectMapper = objectMapper;
 	}
 
 	@Transactional
@@ -123,6 +143,74 @@ public class ChatService {
 
 	@Transactional
 	public ChatAnswerResponse sendMessage(UUID workspaceId, UUID conversationId, SendMessageRequest request) {
+		PreparedTurn turn = prepareTurn(workspaceId, conversationId, request);
+		String answer = llmClient.chat(turn.systemPrompt(), turn.llmMessages());
+		return finalizeTurn(turn, answer);
+	}
+
+	/**
+	 * Streams the assistant answer as SSE events:
+	 * {@code user}, {@code token}, {@code done}, {@code error}.
+	 */
+	public SseEmitter streamMessage(UUID workspaceId, UUID conversationId, SendMessageRequest request) {
+		PreparedTurn turn = transactionTemplate.execute(status -> prepareTurn(workspaceId, conversationId, request));
+		if (turn == null) {
+			throw new BadRequestException("Failed to prepare chat turn");
+		}
+
+		SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+
+		streamExecutor.execute(() -> {
+			try {
+				sendEvent(emitter, "user", Map.of(
+						"conversationId", turn.conversationId(),
+						"userMessage", turn.userMessageResponse(),
+						"citations", turn.citations(),
+						"model", llmClient.modelId()
+				));
+
+				StringBuilder full = new StringBuilder();
+				llmClient.streamChat(turn.systemPrompt(), turn.llmMessages(), delta -> {
+					full.append(delta);
+					try {
+						sendEvent(emitter, "token", Map.of("delta", delta));
+					}
+					catch (IOException ex) {
+						throw new IllegalStateException("SSE send failed", ex);
+					}
+				});
+
+				ChatAnswerResponse done = transactionTemplate.execute(status -> finalizeTurn(turn, full.toString()));
+				sendEvent(emitter, "done", done);
+				emitter.complete();
+			}
+			catch (Exception ex) {
+				log.error("Streaming chat failed", ex);
+				try {
+					sendEvent(emitter, "error", Map.of(
+							"message", ex.getMessage() == null ? "Streaming failed" : ex.getMessage()
+					));
+					emitter.complete();
+				}
+				catch (Exception ignored) {
+					emitter.completeWithError(ex);
+				}
+			}
+		});
+
+		emitter.onTimeout(emitter::complete);
+		emitter.onError(ex -> log.debug("SSE error: {}", ex.toString()));
+		return emitter;
+	}
+
+	@Transactional
+	public void softDeleteConversation(UUID workspaceId, UUID conversationId) {
+		Conversation conversation = requireOwnedConversation(workspaceId, conversationId);
+		conversation.softDelete();
+		conversationRepository.save(conversation);
+	}
+
+	private PreparedTurn prepareTurn(UUID workspaceId, UUID conversationId, SendMessageRequest request) {
 		Conversation conversation = requireOwnedConversation(workspaceId, conversationId);
 
 		String userText = request.message().trim();
@@ -132,7 +220,6 @@ public class ChatService {
 
 		int topK = request.topK() == null ? DEFAULT_TOP_K : request.topK();
 
-		// Auto-title from first user message
 		if ("New conversation".equals(conversation.getTitle())) {
 			String title = userText.length() > 80 ? userText.substring(0, 80) + "..." : userText;
 			conversation.setTitle(title);
@@ -149,15 +236,37 @@ public class ChatService {
 		List<ChatMessage> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
 		List<LlmMessage> llmMessages = toLlmHistory(history, built.userPrompt());
 
-		String answer = llmClient.chat(built.systemPrompt(), llmMessages);
+		conversationRepository.save(conversation);
 
-		ChatMessage assistantMessage = messageRepository.save(
-				new ChatMessage(conversation.getId(), MessageRole.ASSISTANT, answer)
+		ChatMessageResponse userMessageResponse = new ChatMessageResponse(
+				userMessage.getId(),
+				userMessage.getRole(),
+				userMessage.getContent(),
+				userMessage.getCreatedAt(),
+				List.of()
 		);
 
-		List<MessageCitation> savedCitations = new ArrayList<>();
-		for (CitationResponse citation : built.citations()) {
-			savedCitations.add(citationRepository.save(new MessageCitation(
+		return new PreparedTurn(
+				conversation.getId(),
+				userMessageResponse,
+				built.systemPrompt(),
+				llmMessages,
+				built.citations()
+		);
+	}
+
+	private ChatAnswerResponse finalizeTurn(PreparedTurn turn, String answer) {
+		String content = answer == null ? "" : answer.trim();
+		if (content.isEmpty()) {
+			content = "I could not generate an answer. Please try again.";
+		}
+
+		ChatMessage assistantMessage = messageRepository.save(
+				new ChatMessage(turn.conversationId(), MessageRole.ASSISTANT, content)
+		);
+
+		for (CitationResponse citation : turn.citations()) {
+			citationRepository.save(new MessageCitation(
 					assistantMessage.getId(),
 					citation.chunkId(),
 					citation.documentId(),
@@ -165,23 +274,16 @@ public class ChatService {
 					citation.score(),
 					citation.sourceFilename(),
 					citation.snippet()
-			)));
+			));
 		}
 
-		conversationRepository.save(conversation);
+		// Touch conversation updatedAt
+		conversationRepository.findById(turn.conversationId()).ifPresent(conversationRepository::save);
 
-		// Keep citation numbers aligned with the prompt ([1], [2], ...)
-		List<CitationResponse> citationResponses = built.citations();
-
+		List<CitationResponse> citationResponses = turn.citations();
 		return new ChatAnswerResponse(
-				conversation.getId(),
-				new ChatMessageResponse(
-						userMessage.getId(),
-						userMessage.getRole(),
-						userMessage.getContent(),
-						userMessage.getCreatedAt(),
-						List.of()
-				),
+				turn.conversationId(),
+				turn.userMessageResponse(),
 				new ChatMessageResponse(
 						assistantMessage.getId(),
 						assistantMessage.getRole(),
@@ -194,15 +296,13 @@ public class ChatService {
 		);
 	}
 
-	@Transactional
-	public void softDeleteConversation(UUID workspaceId, UUID conversationId) {
-		Conversation conversation = requireOwnedConversation(workspaceId, conversationId);
-		conversation.softDelete();
-		conversationRepository.save(conversation);
+	private void sendEvent(SseEmitter emitter, String name, Object data) throws IOException {
+		emitter.send(SseEmitter.event()
+				.name(name)
+				.data(objectMapper.writeValueAsString(data), MediaType.APPLICATION_JSON));
 	}
 
 	private List<LlmMessage> toLlmHistory(List<ChatMessage> history, String currentUserPromptWithContext) {
-		// history includes the user message just saved; rebuild prior turns only, then current RAG user prompt
 		List<ChatMessage> prior = history.size() <= 1
 				? List.of()
 				: history.subList(0, history.size() - 1);
@@ -263,5 +363,14 @@ public class ChatService {
 				citation.getScore(),
 				citation.getSnippet()
 		);
+	}
+
+	private record PreparedTurn(
+			UUID conversationId,
+			ChatMessageResponse userMessageResponse,
+			String systemPrompt,
+			List<LlmMessage> llmMessages,
+			List<CitationResponse> citations
+	) {
 	}
 }
