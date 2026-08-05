@@ -57,12 +57,20 @@ public class DocumentIngestionService {
 	}
 
 	/**
-	 * Parse stored file → chunk text → persist chunks. No embeddings yet.
+	 * Parse stored file → chunk text → persist chunks. Sets status {@link DocumentStatus#EMBEDDING}.
+	 * Requires authenticated owner (HTTP).
 	 */
 	@Transactional
 	public DocumentResponse process(UUID workspaceId, UUID documentId) {
 		workspaceService.requireOwnedWorkspace(workspaceId);
+		return processInternal(workspaceId, documentId);
+	}
 
+	/**
+	 * Same as {@link #process} without auth — for background pipeline after upload.
+	 */
+	@Transactional
+	public DocumentResponse processInternal(UUID workspaceId, UUID documentId) {
 		Document document = documentRepository
 				.findByIdAndWorkspaceIdAndDeletedAtIsNull(documentId, workspaceId)
 				.orElseThrow(() -> new ResourceNotFoundException("Document not found: " + documentId));
@@ -112,12 +120,13 @@ public class DocumentIngestionService {
 			}
 			chunkRepository.saveAll(entities);
 
-			document.setStatus(DocumentStatus.READY);
+			// Chunking done — not searchable until embeddings finish (pipeline sets READY).
+			document.setStatus(DocumentStatus.EMBEDDING);
 			document.setFailureReason(null);
 			Document saved = documentRepository.save(document);
 
 			log.info(
-					"Document {} processed: {} chunks (size={}, overlap={})",
+					"Document {} processed: {} chunks (size={}, overlap={}) → EMBEDDING",
 					document.getId(),
 					parts.size(),
 					TextChunker.DEFAULT_CHUNK_SIZE,

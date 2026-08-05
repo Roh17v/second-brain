@@ -58,7 +58,8 @@ public class DocumentController {
 	}
 
 	/**
-	 * Parse file text, chunk it, and store chunks. Does not create embeddings yet.
+	 * Parse file text, chunk it, and store chunks. Pipeline continues to embed
+	 * automatically after upload; this remains for manual re-process.
 	 */
 	@PostMapping("/{documentId}/process")
 	public DocumentResponse process(
@@ -66,6 +67,17 @@ public class DocumentController {
 			@PathVariable UUID documentId
 	) {
 		return documentIngestionService.process(workspaceId, documentId);
+	}
+
+	/**
+	 * Re-queue background process + embed (useful after FAILED).
+	 */
+	@PostMapping("/{documentId}/retry")
+	public DocumentResponse retry(
+			@PathVariable UUID workspaceId,
+			@PathVariable UUID documentId
+	) {
+		return documentService.retryIngestion(workspaceId, documentId);
 	}
 
 	@GetMapping("/{documentId}/chunks")

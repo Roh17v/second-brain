@@ -8,6 +8,8 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.secondbrain.common.exception.BadRequestException;
@@ -27,24 +29,30 @@ import com.secondbrain.workspace.service.WorkspaceService;
 @Service
 public class DocumentService {
 
-	private static final Set<String> ALLOWED_EXTENSIONS = Set.of("pdf", "txt", "md", "markdown");
+	private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+			"pdf", "txt", "md", "markdown",
+			"png", "jpg", "jpeg", "webp", "gif", "avif"
+	);
 	private static final long MAX_FILE_BYTES = 20L * 1024 * 1024;
 
 	private final DocumentRepository documentRepository;
 	private final DocumentMapper documentMapper;
 	private final WorkspaceService workspaceService;
 	private final FileStorageService fileStorageService;
+	private final DocumentIngestionPipeline documentIngestionPipeline;
 
 	public DocumentService(
 			DocumentRepository documentRepository,
 			DocumentMapper documentMapper,
 			WorkspaceService workspaceService,
-			FileStorageService fileStorageService
+			FileStorageService fileStorageService,
+			DocumentIngestionPipeline documentIngestionPipeline
 	) {
 		this.documentRepository = documentRepository;
 		this.documentMapper = documentMapper;
 		this.workspaceService = workspaceService;
 		this.fileStorageService = fileStorageService;
+		this.documentIngestionPipeline = documentIngestionPipeline;
 	}
 
 	@Transactional
@@ -85,6 +93,17 @@ public class DocumentService {
 			);
 			document.setStoragePath(storagePath);
 			document = documentRepository.save(document);
+
+			// Queue OCR/chunk/embed only after this transaction commits.
+			final UUID wsId = workspace.getId();
+			final UUID docId = document.getId();
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					documentIngestionPipeline.processAndEmbedAsync(wsId, docId);
+				}
+			});
+
 			return documentMapper.toResponse(document);
 		}
 		catch (IOException ex) {
@@ -95,6 +114,36 @@ public class DocumentService {
 			cleanupFailedUpload(document);
 			throw ex;
 		}
+	}
+
+	/**
+	 * Re-queue full process + embed (e.g. after FAILED).
+	 */
+	@Transactional
+	public DocumentResponse retryIngestion(UUID workspaceId, UUID documentId) {
+		workspaceService.requireOwnedWorkspace(workspaceId);
+		Document document = documentRepository
+				.findByIdAndWorkspaceIdAndDeletedAtIsNull(documentId, workspaceId)
+				.orElseThrow(() -> new ResourceNotFoundException("Document not found: " + documentId));
+
+		if ("pending".equals(document.getStoragePath())) {
+			throw new BadRequestException("Document file is not available");
+		}
+
+		document.setStatus(DocumentStatus.UPLOADED);
+		document.setFailureReason(null);
+		documentRepository.save(document);
+
+		final UUID wsId = workspaceId;
+		final UUID docId = documentId;
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				documentIngestionPipeline.reprocessAsync(wsId, docId);
+			}
+		});
+
+		return documentMapper.toResponse(document);
 	}
 
 	@Transactional(readOnly = true)
@@ -161,11 +210,13 @@ public class DocumentService {
 	private static void validateExtension(String filename) {
 		int dot = filename.lastIndexOf('.');
 		if (dot < 0 || dot == filename.length() - 1) {
-			throw new BadRequestException("File must have an extension (pdf, txt, md)");
+			throw new BadRequestException("File must have an extension (pdf, txt, md, png, jpg, …)");
 		}
 		String ext = filename.substring(dot + 1).toLowerCase(Locale.ROOT);
 		if (!ALLOWED_EXTENSIONS.contains(ext)) {
-			throw new BadRequestException("Unsupported file type. Allowed: pdf, txt, md");
+			throw new BadRequestException(
+					"Unsupported file type. Allowed: pdf, txt, md, png, jpg, jpeg, webp, gif, avif"
+			);
 		}
 	}
 }

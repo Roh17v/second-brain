@@ -56,12 +56,19 @@ public class EmbeddingService {
 	}
 
 	/**
-	 * Embeds all chunks for a document that do not yet have embeddings.
+	 * Embeds all chunks for a document. Requires authenticated owner (HTTP).
 	 */
 	@Transactional
 	public DocumentEmbedResponse embedDocument(UUID workspaceId, UUID documentId) {
 		workspaceService.requireOwnedWorkspace(workspaceId);
+		return embedDocumentInternal(workspaceId, documentId);
+	}
 
+	/**
+	 * Same as {@link #embedDocument} without auth — for background pipeline.
+	 */
+	@Transactional
+	public DocumentEmbedResponse embedDocumentInternal(UUID workspaceId, UUID documentId) {
 		Document document = documentRepository
 				.findByIdAndWorkspaceIdAndDeletedAtIsNull(documentId, workspaceId)
 				.orElseThrow(() -> new ResourceNotFoundException("Document not found: " + documentId));
@@ -74,35 +81,55 @@ public class EmbeddingService {
 			throw new BadRequestException("Document must be processed (chunked) before embedding. Call /process first.");
 		}
 
-		int embeddedNow = 0;
-		int skipped = 0;
-		for (DocumentChunk chunk : chunks) {
-			if (vectorStore.hasEmbedding(chunk.getId())) {
-				skipped++;
-				continue;
+		document.setStatus(DocumentStatus.EMBEDDING);
+		document.setFailureReason(null);
+		documentRepository.save(document);
+
+		try {
+			int embeddedNow = 0;
+			int skipped = 0;
+			for (DocumentChunk chunk : chunks) {
+				if (vectorStore.hasEmbedding(chunk.getId())) {
+					skipped++;
+					continue;
+				}
+				float[] vector = embeddingClient.embed(chunk.getContent());
+				vectorStore.saveEmbedding(chunk.getId(), vector, embeddingClient.modelId());
+				embeddedNow++;
 			}
-			float[] vector = embeddingClient.embed(chunk.getContent());
-			vectorStore.saveEmbedding(chunk.getId(), vector, embeddingClient.modelId());
-			embeddedNow++;
+
+			long totalEmbedded = vectorStore.countEmbeddedChunks(documentId);
+			document.setStatus(DocumentStatus.READY);
+			document.setFailureReason(null);
+			documentRepository.save(document);
+
+			log.info(
+					"Document {} embeddings: created={}, skipped={}, totalEmbedded={}, model={} → READY",
+					documentId,
+					embeddedNow,
+					skipped,
+					totalEmbedded,
+					embeddingClient.modelId()
+			);
+
+			return new DocumentEmbedResponse(
+					documentMapper.toResponse(document),
+					embeddedNow,
+					skipped,
+					totalEmbedded,
+					embeddingClient.modelId()
+			);
 		}
-
-		long totalEmbedded = vectorStore.countEmbeddedChunks(documentId);
-		log.info(
-				"Document {} embeddings: created={}, skipped={}, totalEmbedded={}, model={}",
-				documentId,
-				embeddedNow,
-				skipped,
-				totalEmbedded,
-				embeddingClient.modelId()
-		);
-
-		return new DocumentEmbedResponse(
-				documentMapper.toResponse(document),
-				embeddedNow,
-				skipped,
-				totalEmbedded,
-				embeddingClient.modelId()
-		);
+		catch (RuntimeException ex) {
+			document.setStatus(DocumentStatus.FAILED);
+			String reason = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+			if (reason.length() > 900) {
+				reason = reason.substring(0, 900);
+			}
+			document.setFailureReason(reason);
+			documentRepository.save(document);
+			throw ex;
+		}
 	}
 
 	@Transactional(readOnly = true)
