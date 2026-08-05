@@ -9,11 +9,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -95,6 +97,16 @@ public class GlobalExceptionHandler {
 		return body(HttpStatus.INTERNAL_SERVER_ERROR, rootMessage(ex));
 	}
 
+	/**
+	 * Happens when a JSON error is returned for a request that only accepts
+	 * {@code text/event-stream} (SSE chat). Force JSON so the handler can complete.
+	 */
+	@ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+	public ResponseEntity<Map<String, Object>> handleNotAcceptable(HttpMediaTypeNotAcceptableException ex) {
+		log.debug("Not acceptable media type: {}", ex.getMessage());
+		return body(HttpStatus.BAD_REQUEST, "Request failed (client Accept header cannot be satisfied for this error response)");
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
 		log.error("Unhandled error", ex);
@@ -113,12 +125,18 @@ public class GlobalExceptionHandler {
 		return message;
 	}
 
+	/**
+	 * Always force {@code application/json} so error bodies work even when the
+	 * client Accept is only {@code text/event-stream} (streaming chat).
+	 */
 	private ResponseEntity<Map<String, Object>> body(HttpStatus status, String message) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("timestamp", Instant.now().toString());
 		payload.put("status", status.value());
 		payload.put("error", status.getReasonPhrase());
 		payload.put("message", message);
-		return ResponseEntity.status(status).body(payload);
+		return ResponseEntity.status(status)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(payload);
 	}
 }
