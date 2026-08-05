@@ -9,16 +9,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import com.secondbrain.ai.AiProviders;
 import com.secondbrain.common.exception.BadRequestException;
 
 /**
- * Calls Ollama's /api/embeddings endpoint.
- *
- * Prerequisite: Ollama running and model pulled, e.g.
- * {@code ollama pull nomic-embed-text}
+ * Ollama {@link EmbeddingClient} — local models via {@code POST /api/embeddings}.
+ * Active when {@code app.embedding.provider=ollama}.
  */
 @Component
-@ConditionalOnProperty(name = "app.embedding.provider", havingValue = "ollama", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.embedding.provider", havingValue = AiProviders.EMBEDDING_OLLAMA, matchIfMissing = true)
 public class OllamaEmbeddingClient implements EmbeddingClient {
 
 	private final EmbeddingProperties properties;

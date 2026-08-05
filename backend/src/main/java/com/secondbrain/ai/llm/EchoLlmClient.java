@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * Deterministic offline LLM for tests (supports streaming token simulation).
  */
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "echo")
+@ConditionalOnProperty(name = "app.llm.provider", havingValue = com.secondbrain.ai.AiProviders.LLM_ECHO)
 public class EchoLlmClient implements LlmClient {
 
 	@Override

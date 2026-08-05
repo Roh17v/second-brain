@@ -23,14 +23,15 @@ import org.springframework.web.client.RestClientException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.secondbrain.ai.AiProviders;
 import com.secondbrain.common.exception.BadRequestException;
 
 /**
- * Ollama chat API client ({@code POST /api/chat}).
- * Supports non-streaming and streaming (NDJSON) modes.
+ * Ollama {@link LlmClient} — local chat via {@code POST /api/chat} (stream + non-stream).
+ * Active when {@code app.llm.provider=ollama}.
  */
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "ollama", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.llm.provider", havingValue = AiProviders.LLM_OLLAMA, matchIfMissing = true)
 public class OllamaLlmClient implements LlmClient {
 
 	private final LlmProperties properties;
@@ -71,7 +72,7 @@ public class OllamaLlmClient implements LlmClient {
 			if (content == null || content.toString().isBlank()) {
 				throw new BadRequestException("Ollama returned an empty answer");
 			}
-			return content.toString().trim();
+			return ThinkingStreamFilter.stripComplete(content.toString());
 		}
 		catch (RestClientException ex) {
 			throw ollamaError(ex.getMessage());
@@ -100,6 +101,7 @@ public class OllamaLlmClient implements LlmClient {
 				throw ollamaError("HTTP " + response.statusCode() + " " + err);
 			}
 
+			ThinkingStreamFilter thinkFilter = new ThinkingStreamFilter();
 			try (BufferedReader reader = new BufferedReader(
 					new InputStreamReader(response.body(), StandardCharsets.UTF_8)
 			)) {
@@ -109,14 +111,18 @@ public class OllamaLlmClient implements LlmClient {
 						continue;
 					}
 					JsonNode node = objectMapper.readTree(line);
-					if (node.path("done").asBoolean(false) && !node.path("message").path("content").isMissingNode()) {
-						// final frame may include full message; only emit delta if present
-					}
 					JsonNode contentNode = node.path("message").path("content");
 					if (!contentNode.isMissingNode() && !contentNode.asText().isEmpty()) {
-						onToken.accept(contentNode.asText());
+						String safe = thinkFilter.accept(contentNode.asText());
+						if (!safe.isEmpty()) {
+							onToken.accept(safe);
+						}
 					}
 				}
+			}
+			String tail = thinkFilter.finish();
+			if (!tail.isEmpty()) {
+				onToken.accept(tail);
 			}
 		}
 		catch (IOException | InterruptedException ex) {

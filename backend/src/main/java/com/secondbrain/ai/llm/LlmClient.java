@@ -4,17 +4,20 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Abstraction over chat/completion LLM providers.
+ * Port for chat/completion providers. Implementations: Ollama, Gemini, echo (tests), …
+ * <p>
+ * Chat/RAG code depends only on this interface — swap providers via config.
  */
 public interface LlmClient {
 
 	/**
-	 * Runs a non-streaming chat completion.
+	 * Non-streaming completion.
 	 */
 	String chat(String systemPrompt, List<LlmMessage> messages);
 
 	/**
-	 * Streams token deltas via {@code onToken}. Default implementation falls back to full chat.
+	 * Streams text deltas. Default: one-shot {@link #chat} then a single callback.
+	 * Providers with native streaming should override.
 	 */
 	default void streamChat(String systemPrompt, List<LlmMessage> messages, Consumer<String> onToken) {
 		String full = chat(systemPrompt, messages);
@@ -23,5 +26,8 @@ public interface LlmClient {
 		}
 	}
 
+	/**
+	 * Model id reported to clients / logs.
+	 */
 	String modelId();
 }

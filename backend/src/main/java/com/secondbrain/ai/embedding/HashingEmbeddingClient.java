@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * Deterministic offline embeddings for tests. Not for production retrieval quality.
  */
 @Component
-@ConditionalOnProperty(name = "app.embedding.provider", havingValue = "hashing")
+@ConditionalOnProperty(name = "app.embedding.provider", havingValue = com.secondbrain.ai.AiProviders.EMBEDDING_HASHING)
 public class HashingEmbeddingClient implements EmbeddingClient {
 
 	private final EmbeddingProperties properties;

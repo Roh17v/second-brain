@@ -24,6 +24,8 @@ app:
   llm:
     provider: echo
     model: echo-llm
+  ocr:
+    provider: none
   storage:
     base-path: ${java.io.tmpdir}/secondbrain-test-storage
 
