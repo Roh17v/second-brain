@@ -57,3 +57,6 @@ application-local.properties
 
 # Downloaded sample notes for manual API testing (not product source)
 /sample-docs/
+
+# Side experiments — local only, never commit
+/experiments/
