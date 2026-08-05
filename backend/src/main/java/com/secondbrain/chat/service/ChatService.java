@@ -151,27 +151,61 @@ public class ChatService {
 	/**
 	 * Streams the assistant answer as SSE events:
 	 * {@code user}, {@code token}, {@code done}, {@code error}.
+	 * <p>
+	 * Failures during prepare are returned as an SSE {@code error} event (not a JSON
+	 * 400) so {@code Accept: text/event-stream} clients can consume them.
 	 */
 	public SseEmitter streamMessage(UUID workspaceId, UUID conversationId, SendMessageRequest request) {
-		PreparedTurn turn = transactionTemplate.execute(status -> prepareTurn(workspaceId, conversationId, request));
-		if (turn == null) {
-			throw new BadRequestException("Failed to prepare chat turn");
-		}
-
 		SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
 		java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
 
+		emitter.onTimeout(() -> completeQuietly(emitter, completed));
+		emitter.onError(ex -> {
+			log.debug("SSE connection closed: {}", ex.toString());
+			completed.set(true);
+		});
+		emitter.onCompletion(() -> completed.set(true));
+
+		PreparedTurn turn;
+		try {
+			turn = transactionTemplate.execute(status -> prepareTurn(workspaceId, conversationId, request));
+			if (turn == null) {
+				throw new BadRequestException("Failed to prepare chat turn");
+			}
+		}
+		catch (Exception prepareEx) {
+			log.warn("SSE prepare failed: {}", prepareEx.getMessage());
+			streamExecutor.execute(() -> {
+				try {
+					sendEvent(emitter, "error", Map.of(
+							"message",
+							prepareEx.getMessage() == null ? "Failed to prepare chat" : prepareEx.getMessage()
+					));
+				}
+				catch (Exception ignored) {
+					// ignore
+				}
+				completeQuietly(emitter, completed);
+			});
+			return emitter;
+		}
+
+		// Capture auth for the worker thread (JWT context is thread-local by default).
+		var securityContext = org.springframework.security.core.context.SecurityContextHolder.getContext();
+		final PreparedTurn prepared = turn;
+
 		streamExecutor.execute(() -> {
+			org.springframework.security.core.context.SecurityContextHolder.setContext(securityContext);
 			try {
 				sendEvent(emitter, "user", Map.of(
-						"conversationId", turn.conversationId(),
-						"userMessage", turn.userMessageResponse(),
-						"citations", turn.citations(),
+						"conversationId", prepared.conversationId(),
+						"userMessage", prepared.userMessageResponse(),
+						"citations", prepared.citations(),
 						"model", llmClient.modelId()
 				));
 
 				StringBuilder full = new StringBuilder();
-				llmClient.streamChat(turn.systemPrompt(), turn.llmMessages(), delta -> {
+				llmClient.streamChat(prepared.systemPrompt(), prepared.llmMessages(), delta -> {
 					full.append(delta);
 					try {
 						sendEvent(emitter, "token", Map.of("delta", delta));
@@ -182,7 +216,9 @@ public class ChatService {
 					}
 				});
 
-				ChatAnswerResponse done = transactionTemplate.execute(status -> finalizeTurn(turn, full.toString()));
+				ChatAnswerResponse done = transactionTemplate.execute(
+						status -> finalizeTurn(prepared, full.toString())
+				);
 				sendEvent(emitter, "done", done);
 				completeQuietly(emitter, completed);
 			}
@@ -200,14 +236,11 @@ public class ChatService {
 				}
 				completeQuietly(emitter, completed);
 			}
+			finally {
+				org.springframework.security.core.context.SecurityContextHolder.clearContext();
+			}
 		});
 
-		emitter.onTimeout(() -> completeQuietly(emitter, completed));
-		emitter.onError(ex -> {
-			log.debug("SSE connection closed: {}", ex.toString());
-			completed.set(true);
-		});
-		emitter.onCompletion(() -> completed.set(true));
 		return emitter;
 	}
 
@@ -275,7 +308,10 @@ public class ChatService {
 	}
 
 	private ChatAnswerResponse finalizeTurn(PreparedTurn turn, String answer) {
-		String content = answer == null ? "" : answer.trim();
+		// Belt-and-suspenders: never persist Qwen-style think blocks
+		String content = com.secondbrain.ai.llm.ThinkingStreamFilter.stripComplete(
+				answer == null ? "" : answer
+		);
 		if (content.isEmpty()) {
 			content = "I could not generate an answer. Please try again.";
 		}
