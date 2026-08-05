@@ -1,0 +1,139 @@
+@import 'tailwindcss';
+
+/*
+  SecondBrain design tokens
+  Language: Notion / Linear / Raycast — minimal, soft, one accent.
+*/
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+
+  /* Radius: 12–16px family */
+  --radius-sm: 0.5rem; /* 8 */
+  --radius-md: 0.75rem; /* 12 */
+  --radius-lg: 1rem; /* 16 */
+  --radius-xl: 1.25rem; /* 20 */
+
+  /* Light — defaults applied on :root below via CSS variables mapped into theme */
+  --color-background: var(--sb-background);
+  --color-foreground: var(--sb-foreground);
+  --color-card: var(--sb-card);
+  --color-card-foreground: var(--sb-card-foreground);
+  --color-muted: var(--sb-muted);
+  --color-muted-foreground: var(--sb-muted-foreground);
+  --color-border: var(--sb-border);
+  --color-input: var(--sb-input);
+  --color-primary: var(--sb-primary);
+  --color-primary-foreground: var(--sb-primary-foreground);
+  --color-secondary: var(--sb-secondary);
+  --color-secondary-foreground: var(--sb-secondary-foreground);
+  --color-accent: var(--sb-accent);
+  --color-accent-foreground: var(--sb-accent-foreground);
+  --color-destructive: var(--sb-destructive);
+  --color-destructive-foreground: var(--sb-destructive-foreground);
+  --color-ring: var(--sb-ring);
+  --color-sidebar: var(--sb-sidebar);
+  --color-sidebar-foreground: var(--sb-sidebar-foreground);
+  --color-sidebar-border: var(--sb-sidebar-border);
+  --color-sidebar-accent: var(--sb-sidebar-accent);
+  --color-success: var(--sb-success);
+  --color-success-foreground: var(--sb-success-foreground);
+}
+
+/* Light theme */
+:root {
+  --sb-background: #f7f7f5;
+  --sb-foreground: #1a1a18;
+  --sb-card: #ffffff;
+  --sb-card-foreground: #1a1a18;
+  --sb-muted: #efefec;
+  --sb-muted-foreground: #6f6f69;
+  --sb-border: #e6e6e1;
+  --sb-input: #e6e6e1;
+  --sb-primary: #2f6fed;
+  --sb-primary-foreground: #ffffff;
+  --sb-secondary: #efefec;
+  --sb-secondary-foreground: #1a1a18;
+  --sb-accent: #eef3ff;
+  --sb-accent-foreground: #1e3a8a;
+  --sb-destructive: #dc2626;
+  --sb-destructive-foreground: #ffffff;
+  --sb-ring: #2f6fed;
+  --sb-sidebar: #fafaf8;
+  --sb-sidebar-foreground: #1a1a18;
+  --sb-sidebar-border: #ebebe6;
+  --sb-sidebar-accent: #efefec;
+  --sb-success: #16a34a;
+  --sb-success-foreground: #ffffff;
+  --sb-shadow-sm: 0 1px 2px rgb(26 26 24 / 0.04), 0 1px 3px rgb(26 26 24 / 0.06);
+  --sb-shadow-md: 0 4px 16px rgb(26 26 24 / 0.06), 0 1px 3px rgb(26 26 24 / 0.04);
+}
+
+/* Dark theme */
+.dark {
+  --sb-background: #121212;
+  --sb-foreground: #ececec;
+  --sb-card: #1a1a1a;
+  --sb-card-foreground: #ececec;
+  --sb-muted: #262626;
+  --sb-muted-foreground: #a3a3a3;
+  --sb-border: #2a2a2a;
+  --sb-input: #2a2a2a;
+  --sb-primary: #5b8def;
+  --sb-primary-foreground: #0a0a0a;
+  --sb-secondary: #262626;
+  --sb-secondary-foreground: #ececec;
+  --sb-accent: #1e2a44;
+  --sb-accent-foreground: #c7d7ff;
+  --sb-destructive: #ef4444;
+  --sb-destructive-foreground: #ffffff;
+  --sb-ring: #5b8def;
+  --sb-sidebar: #141414;
+  --sb-sidebar-foreground: #ececec;
+  --sb-sidebar-border: #262626;
+  --sb-sidebar-accent: #222222;
+  --sb-success: #22c55e;
+  --sb-success-foreground: #0a0a0a;
+  --sb-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --sb-shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+  }
+
+  /* Quiet focus for knowledge-app feel */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@utility shadow-soft {
+  box-shadow: var(--sb-shadow-sm);
+}
+
+@utility shadow-lift {
+  box-shadow: var(--sb-shadow-md);
+}

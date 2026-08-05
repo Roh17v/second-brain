@@ -1,14 +1,22 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { apiRequest } from '../api/client'
+import { Loader2, MessageSquarePlus, Send } from 'lucide-react'
+import { apiRequest } from '@/api/client'
 import type {
   ChatAnswer,
   Conversation,
   ConversationDetail,
   ChatMessage,
   Citation,
-} from '../api/types'
-import { useAuth } from '../auth/AuthContext'
+} from '@/api/types'
+import { useAuth } from '@/auth/AuthContext'
+import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? ''
 
@@ -17,11 +25,8 @@ function parseSseChunk(raw: string): { eventName: string; data: string } | null 
   let eventName = 'message'
   const dataLines: string[] = []
   for (const line of lines) {
-    if (line.startsWith('event:')) {
-      eventName = line.slice(6).trim()
-    } else if (line.startsWith('data:')) {
-      dataLines.push(line.slice(5).trimStart())
-    }
+    if (line.startsWith('event:')) eventName = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
   }
   if (dataLines.length === 0) return null
   return { eventName, data: dataLines.join('\n') }
@@ -37,7 +42,7 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [model, setModel] = useState<string | null>(null)
-  const logRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   async function loadConversations() {
     if (!workspaceId) return
@@ -47,9 +52,7 @@ export default function ChatPage() {
       token,
     )
     setConversations(data)
-    if (!activeId && data.length > 0) {
-      setActiveId(data[0].id)
-    }
+    if (!activeId && data.length > 0) setActiveId(data[0].id)
   }
 
   async function loadConversation(id: string) {
@@ -79,9 +82,7 @@ export default function ChatPage() {
   }, [activeId, workspaceId, token])
 
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight
-    }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   async function createConversation() {
@@ -171,7 +172,6 @@ export default function ChatPage() {
         try {
           readResult = await reader.read()
         } catch (readErr) {
-          // Browsers often throw a network error when the SSE connection closes after complete.
           if (gotDone) break
           throw readErr
         }
@@ -191,7 +191,6 @@ export default function ChatPage() {
           try {
             data = JSON.parse(parsed.data) as Record<string, unknown>
           } catch {
-            // Skip malformed frame
             continue
           }
 
@@ -222,8 +221,6 @@ export default function ChatPage() {
             const answer = data as unknown as ChatAnswer
             setModel(answer.model)
             setMessages((prev) => {
-              // Drop temp bubbles. Also drop the user message already applied by the
-              // "user" event so we don't render the question twice.
               const cleaned = prev.filter(
                 (m) =>
                   m.id !== tempUserId &&
@@ -240,42 +237,9 @@ export default function ChatPage() {
         }
       }
 
-      // Flush any trailing event without trailing blank line
-      if (buffer.trim() && !gotDone) {
-        const parsed = parseSseChunk(buffer)
-        if (parsed) {
-          try {
-            const data = JSON.parse(parsed.data) as Record<string, unknown>
-            if (parsed.eventName === 'done') {
-              gotDone = true
-              const answer = data as unknown as ChatAnswer
-              setModel(answer.model)
-              setMessages((prev) => {
-                const cleaned = prev.filter(
-                  (m) =>
-                    m.id !== tempUserId &&
-                    m.id !== tempAssistantId &&
-                    m.id !== answer.userMessage.id,
-                )
-                return [...cleaned, answer.userMessage, answer.assistantMessage]
-              })
-            }
-            if (parsed.eventName === 'error') {
-              streamError = String(data.message ?? 'Streaming failed')
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-
-      if (streamError && !gotDone) {
-        throw new Error(streamError)
-      }
-
+      if (streamError && !gotDone) throw new Error(streamError)
       await loadConversations()
     } catch (err) {
-      // Ignore benign close errors after a successful done event
       if (gotDone) {
         await loadConversations().catch(() => undefined)
         return
@@ -290,85 +254,138 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="stack">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Chat</h1>
-        <button className="btn" type="button" onClick={() => void createConversation()}>
-          New conversation
-        </button>
-      </div>
-
-      {error && <div className="error">{error}</div>}
-      {model && <p className="muted">Last answer model: {model} (streaming)</p>}
-
-      <div className="row" style={{ alignItems: 'flex-start' }}>
-        <div className="card" style={{ width: 260 }}>
-          <h3>Conversations</h3>
-          <ul className="list">
-            {conversations.map((c) => (
-              <li key={c.id}>
+    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+      <Card className="h-[calc(100vh-12rem)]">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-base">Conversations</CardTitle>
+          <Button size="sm" variant="outline" onClick={() => void createConversation()}>
+            <MessageSquarePlus className="h-4 w-4" />
+            New
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-[calc(100vh-16rem)] px-3 pb-3">
+            <div className="space-y-1">
+              {conversations.map((c) => (
                 <button
+                  key={c.id}
                   type="button"
-                  className="btn secondary"
-                  style={{ width: '100%' }}
                   onClick={() => setActiveId(c.id)}
+                  className={cn(
+                    'w-full rounded-lg px-3 py-2.5 text-left text-sm transition',
+                    activeId === c.id
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'hover:bg-muted text-foreground',
+                  )}
                 >
-                  {c.title}
+                  <div className="line-clamp-2 font-medium">{c.title}</div>
                 </button>
-              </li>
-            ))}
-          </ul>
-          {conversations.length === 0 && (
-            <p className="muted">Create a conversation to start asking questions.</p>
-          )}
-        </div>
+              ))}
+              {conversations.length === 0 && (
+                <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                  Create a conversation to start asking.
+                </p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
 
-        <div className="card" style={{ flex: 1 }}>
+      <Card className="flex h-[calc(100vh-12rem)] flex-col">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
+          <div>
+            <CardTitle className="text-base">Chat</CardTitle>
+            {model && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Streaming · model <Badge variant="secondary">{model}</Badge>
+              </p>
+            )}
+          </div>
+        </CardHeader>
+
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
           {!activeId ? (
-            <p className="muted">Select or create a conversation.</p>
+            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+              Select or create a conversation
+            </div>
           ) : (
             <>
-              <div className="chat-log" ref={logRef}>
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`bubble ${m.role === 'USER' ? 'user' : 'assistant'}`}
-                  >
-                    <div>
-                      {m.content || (sending && m.role === 'ASSISTANT' ? '…' : '')}
+              <ScrollArea className="min-h-0 flex-1 pr-3">
+                <div className="space-y-3 pb-2">
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={cn(
+                        'max-w-[90%] rounded-2xl px-4 py-3 text-sm shadow-sm',
+                        m.role === 'USER'
+                          ? 'ml-auto bg-primary text-primary-foreground'
+                          : 'mr-auto border border-border bg-card',
+                      )}
+                    >
+                      {m.content ? (
+                        <MarkdownMessage
+                          content={m.content}
+                          inverse={m.role === 'USER'}
+                        />
+                      ) : sending && m.role === 'ASSISTANT' ? (
+                        <span className="inline-flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Thinking…
+                        </span>
+                      ) : null}
+                      {m.citations?.length > 0 && (
+                        <div
+                          className={cn(
+                            'mt-2 border-t pt-2 text-xs',
+                            m.role === 'USER'
+                              ? 'border-white/20 text-primary-foreground/80'
+                              : 'border-border text-muted-foreground',
+                          )}
+                        >
+                          Sources:{' '}
+                          {m.citations
+                            .map((c) => {
+                              const chunk =
+                                typeof c.chunkIndex === 'number'
+                                  ? ` · chunk ${c.chunkIndex}`
+                                  : ''
+                              return `[${c.index}] ${c.sourceFilename}${chunk}`
+                            })
+                            .join(' · ')}
+                        </div>
+                      )}
                     </div>
-                    {m.citations?.length > 0 && (
-                      <div className="citations">
-                        Sources:{' '}
-                        {m.citations
-                          .map((c) => `[${c.index}] ${c.sourceFilename}`)
-                          .join(' · ')}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <form className="row" onSubmit={onSend}>
-                <input
-                  className="input"
-                  style={{ flex: 1 }}
+                  ))}
+                  <div ref={bottomRef} />
+                </div>
+              </ScrollArea>
+
+              <form className="flex gap-2" onSubmit={onSend}>
+                <Input
                   placeholder="Ask about your knowledge…"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={sending}
                 />
-                <button className="btn" type="submit" disabled={sending || !input.trim()}>
-                  {sending ? 'Streaming…' : 'Send'}
-                </button>
+                <Button type="submit" disabled={sending || !input.trim()}>
+                  {sending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                  Send
+                </Button>
               </form>
-              <p className="muted">
-                Answers stream as tokens arrive. Total time can still be long on CPU; first
-                tokens should appear sooner.
-              </p>
             </>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
