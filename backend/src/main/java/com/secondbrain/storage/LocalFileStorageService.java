@@ -9,11 +9,20 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import com.secondbrain.common.exception.StorageException;
 
+/**
+ * Local disk storage. Default when {@code app.storage.provider=local} (or unset).
+ */
 @Service
+@ConditionalOnProperty(
+		name = "app.storage.provider",
+		havingValue = StorageProviders.LOCAL,
+		matchIfMissing = true
+)
 public class LocalFileStorageService implements FileStorageService {
 
 	private static final Logger log = LoggerFactory.getLogger(LocalFileStorageService.class);
