@@ -1,10 +1,7 @@
-import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useParams } from 'react-router-dom'
 import { FileText, MessageSquare } from 'lucide-react'
-import { apiRequest } from '@/api/client'
-import type { Workspace } from '@/api/types'
-import { useAuth } from '@/auth/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { useWorkspace } from '@/hooks/useWorkspaces'
 import { cn } from '@/lib/utils'
 
 const tabs = [
@@ -14,15 +11,8 @@ const tabs = [
 
 export default function WorkspaceLayout() {
   const { workspaceId } = useParams()
-  const { token } = useAuth()
-  const [name, setName] = useState<string>('Collection')
-
-  useEffect(() => {
-    if (!workspaceId) return
-    void apiRequest<Workspace>(`/api/workspaces/${workspaceId}`, {}, token)
-      .then((ws) => setName(ws.name))
-      .catch(() => setName('Collection'))
-  }, [workspaceId, token])
+  const { data: workspace } = useWorkspace(workspaceId)
+  const name = workspace?.name ?? 'Collection'
 
   return (
     <AppShell

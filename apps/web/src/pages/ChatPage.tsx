@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Loader2, MessageSquarePlus, Send } from 'lucide-react'
-import { apiRequest } from '@/api/client'
+import { apiRequest, handleUnauthorized } from '@/api/client'
 import type {
   ChatAnswer,
   Conversation,
@@ -153,6 +153,10 @@ export default function ChatPage() {
       )
 
       if (!response.ok || !response.body) {
+        if (response.status === 401) {
+          handleUnauthorized()
+          throw new Error('Session expired')
+        }
         const errText = await response.text()
         let message = response.statusText
         try {

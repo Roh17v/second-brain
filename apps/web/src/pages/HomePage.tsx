@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
 import {
   ArrowRight,
   FileText,
@@ -10,6 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { apiRequest } from '@/api/client'
+import { queryKeys } from '@/api/queryKeys'
 import type { Document, Workspace } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -23,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { useWorkspaces } from '@/hooks/useWorkspaces'
 
 type RecentDoc = Document & { collectionName: string; collectionId: string }
 
@@ -36,67 +39,60 @@ function greeting(name: string | null) {
 
 export default function HomePage() {
   const { token, name } = useAuth()
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [recentDocs, setRecentDocs] = useState<RecentDoc[]>([])
-  const [docCount, setDocCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    data: workspaces = [],
+    isLoading: workspacesLoading,
+    isError: workspacesError,
+    error: workspacesErr,
+  } = useWorkspaces()
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      setError(null)
-      try {
-        const list = await apiRequest<Workspace[]>('/api/workspaces', {}, token)
-        if (cancelled) return
-        setWorkspaces(list)
+  const slice = workspaces.slice(0, 8)
+  const docQueries = useQueries({
+    queries: slice.map((ws) => ({
+      queryKey: queryKeys.documents(ws.id),
+      queryFn: () =>
+        apiRequest<Document[]>(
+          `/api/workspaces/${ws.id}/documents`,
+          {},
+          token,
+        ),
+      enabled: Boolean(token && ws.id),
+      staleTime: 30_000,
+    })),
+  })
 
-        // Aggregate recent docs from up to 8 collections (foundation stats)
-        const slice = list.slice(0, 8)
-        const results = await Promise.all(
-          slice.map(async (ws) => {
-            try {
-              const docs = await apiRequest<Document[]>(
-                `/api/workspaces/${ws.id}/documents`,
-                {},
-                token,
-              )
-              return docs.map((d) => ({
-                ...d,
-                collectionName: ws.name,
-                collectionId: ws.id,
-              }))
-            } catch {
-              return [] as RecentDoc[]
-            }
-          }),
-        )
-        if (cancelled) return
-        const flat = results.flat()
-        setDocCount(flat.length)
-        flat.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        )
-        setRecentDocs(flat.slice(0, 6))
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load home')
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+  const docsLoading = docQueries.some((q) => q.isLoading)
+  const loading = workspacesLoading || (slice.length > 0 && docsLoading)
+
+  const { recentDocs, docCount } = useMemo(() => {
+    const flat: RecentDoc[] = []
+    docQueries.forEach((q, i) => {
+      const ws = slice[i]
+      if (!ws || !q.data) return
+      for (const d of q.data) {
+        flat.push({
+          ...d,
+          collectionName: ws.name,
+          collectionId: ws.id,
+        })
       }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [token])
+    })
+    flat.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    return { recentDocs: flat.slice(0, 6), docCount: flat.length }
+  }, [docQueries, slice])
+
+  const error = workspacesError
+    ? workspacesErr instanceof Error
+      ? workspacesErr.message
+      : 'Failed to load home'
+    : null
 
   const commandItems: CommandItem[] = useMemo(
     () =>
-      workspaces.map((ws) => ({
+      workspaces.map((ws: Workspace) => ({
         id: `ws-${ws.id}`,
         label: ws.name,
         hint: 'Collection',
@@ -150,7 +146,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Stats */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map(({ label, value, icon: Icon, hint }) => (
             <Card key={label} className="shadow-soft">
@@ -171,7 +166,6 @@ export default function HomePage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          {/* Recent uploads */}
           <Card className="shadow-soft">
             <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
               <div>
@@ -233,7 +227,6 @@ export default function HomePage() {
             </CardContent>
           </Card>
 
-          {/* Collections + ask */}
           <div className="space-y-6">
             <Card className="shadow-soft">
               <CardHeader>

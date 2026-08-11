@@ -1,7 +1,6 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { CheckCircle2, FileUp, Loader2, RotateCcw, XCircle } from 'lucide-react'
-import { apiRequest } from '@/api/client'
 import type { Document } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +13,11 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import {
+  useDocuments,
+  useRetryDocument,
+  useUploadDocument,
+} from '@/hooks/useDocuments'
 import { cn } from '@/lib/utils'
 
 function statusVariant(status: string) {
@@ -46,92 +50,48 @@ function isInFlight(status: string) {
 export default function DocumentsPage() {
   const { workspaceId } = useParams()
   const { token } = useAuth()
-  const [documents, setDocuments] = useState<Document[]>([])
+  const {
+    data: documents = [],
+    isLoading,
+    isError,
+    error: loadError,
+  } = useDocuments(workspaceId)
+  const upload = useUploadDocument(workspaceId)
+  const retry = useRetryDocument(workspaceId)
+
   const [file, setFile] = useState<File | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const load = useCallback(async (silent = false) => {
-    if (!workspaceId) return
-    if (!silent) setLoading(true)
-    try {
-      const data = await apiRequest<Document[]>(
-        `/api/workspaces/${workspaceId}/documents`,
-        {},
-        token,
-      )
-      setDocuments(data)
-      if (!silent) setError(null)
-    } catch (err) {
-      if (!silent) {
-        setError(err instanceof Error ? err.message : 'Failed to load documents')
-      }
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }, [workspaceId, token])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  // Poll while any document is still ingesting
-  const needsPoll = useMemo(
-    () => documents.some((d) => isInFlight(d.status)),
-    [documents],
-  )
-
-  useEffect(() => {
-    if (!needsPoll) return
-    const id = window.setInterval(() => {
-      void load(true)
-    }, 2500)
-    return () => window.clearInterval(id)
-  }, [needsPoll, load])
+  const [actionError, setActionError] = useState<string | null>(null)
 
   async function onUpload(e: FormEvent) {
     e.preventDefault()
-    if (!workspaceId || !file) return
-    setError(null)
-    setBusyId('upload')
+    if (!file || !token) return
+    setActionError(null)
     try {
-      const body = new FormData()
-      body.append('file', file)
-      await apiRequest<Document>(
-        `/api/workspaces/${workspaceId}/documents`,
-        { method: 'POST', body },
-        token,
-      )
+      await upload.mutateAsync(file)
       setFile(null)
-      await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
-    } finally {
-      setBusyId(null)
+      setActionError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
 
   async function retryDoc(id: string) {
-    if (!workspaceId) return
-    setBusyId(`${id}:retry`)
-    setError(null)
+    setActionError(null)
     try {
-      await apiRequest(
-        `/api/workspaces/${workspaceId}/documents/${id}/retry`,
-        { method: 'POST' },
-        token,
-      )
-      await load()
+      await retry.mutateAsync(id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Retry failed')
-    } finally {
-      setBusyId(null)
+      setActionError(err instanceof Error ? err.message : 'Retry failed')
     }
   }
 
-  const readyCount = documents.filter((d) => d.status === 'READY').length
-  const pendingCount = documents.filter((d) => isInFlight(d.status)).length
+  const readyCount = documents.filter((d: Document) => d.status === 'READY').length
+  const pendingCount = documents.filter((d: Document) => isInFlight(d.status)).length
+  const error =
+    actionError ||
+    (isError
+      ? loadError instanceof Error
+        ? loadError.message
+        : 'Failed to load documents'
+      : null)
 
   return (
     <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
@@ -155,8 +115,12 @@ export default function DocumentsPage() {
               accept=".pdf,.txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,.avif"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
-            <Button type="submit" className="w-full" disabled={!file || busyId === 'upload'}>
-              {busyId === 'upload' && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!file || upload.isPending}
+            >
+              {upload.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Upload
             </Button>
             <p className="text-xs leading-relaxed text-muted-foreground">
@@ -176,7 +140,7 @@ export default function DocumentsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : documents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No documents yet.</p>
@@ -213,10 +177,10 @@ export default function DocumentsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={busyId !== null}
+                      disabled={retry.isPending || upload.isPending}
                       onClick={() => void retryDoc(doc.id)}
                     >
-                      {busyId === `${doc.id}:retry` ? (
+                      {retry.isPending && retry.variables === doc.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <RotateCcw className="h-4 w-4" />

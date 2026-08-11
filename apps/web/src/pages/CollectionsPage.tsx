@@ -1,8 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, FolderKanban, FolderPlus, Loader2, Plus } from 'lucide-react'
-import { apiRequest } from '@/api/client'
-import type { Workspace } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
 import type { CommandItem } from '@/components/layout/CommandPalette'
@@ -16,59 +14,34 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useCreateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
 
 /** Product language: Collections. API entity remains Workspace. */
 export default function CollectionsPage() {
   const { token } = useAuth()
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const { data: workspaces = [], isLoading, isError, error: loadError } =
+    useWorkspaces()
+  const createWorkspace = useCreateWorkspace()
+
   const [newName, setNewName] = useState('')
   const [description, setDescription] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
   const [showForm, setShowForm] = useState(false)
-
-  async function load() {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await apiRequest<Workspace[]>('/api/workspaces', {}, token)
-      setWorkspaces(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load collections')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void load()
-  }, [token])
+  const [formError, setFormError] = useState<string | null>(null)
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
-    setError(null)
-    setCreating(true)
+    if (!token) return
+    setFormError(null)
     try {
-      await apiRequest<Workspace>(
-        '/api/workspaces',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            name: newName,
-            description: description || null,
-          }),
-        },
-        token,
-      )
+      await createWorkspace.mutateAsync({
+        name: newName,
+        description: description || null,
+      })
       setNewName('')
       setDescription('')
       setShowForm(false)
-      await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create collection')
-    } finally {
-      setCreating(false)
+      setFormError(err instanceof Error ? err.message : 'Failed to create collection')
     }
   }
 
@@ -82,6 +55,14 @@ export default function CollectionsPage() {
       })),
     [workspaces],
   )
+
+  const listError =
+    isError && loadError instanceof Error
+      ? loadError.message
+      : isError
+        ? 'Failed to load collections'
+        : null
+  const error = formError || listError
 
   return (
     <AppShell
@@ -109,9 +90,9 @@ export default function CollectionsPage() {
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={onCreate}>
-                {error && (
+                {formError && (
                   <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    {error}
+                    {formError}
                   </div>
                 )}
                 <div className="space-y-2">
@@ -134,8 +115,10 @@ export default function CollectionsPage() {
                   />
                 </div>
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={creating}>
-                    {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  <Button type="submit" disabled={createWorkspace.isPending}>
+                    {createWorkspace.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
                     Create
                   </Button>
                   <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
@@ -153,7 +136,7 @@ export default function CollectionsPage() {
           </div>
         )}
 
-        {loading ? (
+        {isLoading ? (
           <Card className="p-10 text-center text-sm text-muted-foreground shadow-soft">
             <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
             Loading collections…
