@@ -1,5 +1,5 @@
-import { FormEvent, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { FormEvent, useMemo, useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Brain, Loader2 } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -12,16 +12,41 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  AuthDivider,
+  GoogleSignInButton,
+} from '@/components/auth/GoogleSignInButton'
+
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/'
+  if (raw.startsWith('/login') || raw.startsWith('/register')) return '/'
+  return raw
+}
 
 export default function LoginPage() {
   const { login, token } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const [searchParams] = useSearchParams()
+  const [email, setEmail] = useState(() => searchParams.get('email')?.trim() ?? '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  if (token) return <Navigate to="/" replace />
+  const nextPath = useMemo(
+    () => safeNextPath(searchParams.get('next')),
+    [searchParams],
+  )
+  const sessionExpired = searchParams.get('reason') === 'session'
+  const passwordResetOk = searchParams.get('reset') === '1'
+
+  /** Only after login fails because email is not verified yet. */
+  const needsVerification =
+    !!error && /verif(y|ication)|email code|inbox for a code/i.test(error)
+
+  const noAccount =
+    !!error && /no account exists for this email/i.test(error)
+
+  if (token) return <Navigate to={nextPath} replace />
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -29,7 +54,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
-      navigate('/')
+      navigate(nextPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -50,12 +75,39 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {sessionExpired && !error && (
+            <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+              Your session expired. Please sign in again.
+            </div>
+          )}
+          {passwordResetOk && !error && (
+            <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-100">
+              Password updated. Sign in with your email and new password.
+            </div>
+          )}
+          {error && (
+            <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+              {noAccount && (
+                <>
+                  {' '}
+                  <Link
+                    to="/register"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    Create an account
+                  </Link>
+                </>
+              )}
+            </div>
+          )}
+          <GoogleSignInButton
+            disabled={loading}
+            onSuccess={() => navigate(nextPath)}
+            onError={(message) => setError(message)}
+          />
+          <AuthDivider />
           <form className="space-y-4" onSubmit={onSubmit}>
-            {error && (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -68,7 +120,19 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  to={
+                    email.trim()
+                      ? `/forgot-password?email=${encodeURIComponent(email.trim())}`
+                      : '/forgot-password'
+                  }
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -84,7 +148,26 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-          <p className="mt-6 text-center text-sm text-muted-foreground">
+          {needsVerification && (
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              Have a verification code?{' '}
+              <Link
+                to={
+                  email.trim()
+                    ? `/verify-email?email=${encodeURIComponent(email.trim())}`
+                    : '/verify-email'
+                }
+                className="font-medium text-primary hover:underline"
+              >
+                Enter email code
+              </Link>
+            </p>
+          )}
+          <p
+            className={`text-center text-sm text-muted-foreground ${
+              needsVerification ? 'mt-2' : 'mt-4'
+            }`}
+          >
             No account?{' '}
             <Link to="/register" className="font-medium text-primary hover:underline">
               Create one

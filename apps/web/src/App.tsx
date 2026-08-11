@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import { ThemeProvider } from './theme/ThemeProvider'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import HomePage from './pages/HomePage'
 import CollectionsPage from './pages/CollectionsPage'
 import SettingsPage from './pages/SettingsPage'
@@ -11,7 +13,12 @@ import ChatPage from './pages/ChatPage'
 import DocumentsPage from './pages/DocumentsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth()
+  const { token, sessionExpired } = useAuth()
+  // While the session-expired overlay is up, keep the current tree mounted
+  // so the notice can show on the dashboard (not an instant login bounce).
+  if (sessionExpired) {
+    return children
+  }
   if (!token) {
     return <Navigate to="/login" replace />
   }
@@ -25,6 +32,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
           <Route
             path="/"

@@ -12,6 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  AuthDivider,
+  GoogleSignInButton,
+} from '@/components/auth/GoogleSignInButton'
 
 export default function RegisterPage() {
   const { register, token } = useAuth()
@@ -29,8 +33,14 @@ export default function RegisterPage() {
     setError(null)
     setLoading(true)
     try {
-      await register(email, name, password)
-      navigate('/')
+      const result = await register(email, name, password)
+      if (result.verificationRequired) {
+        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, {
+          replace: true,
+        })
+      } else {
+        navigate('/', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
@@ -47,16 +57,22 @@ export default function RegisterPage() {
           </div>
           <CardTitle className="text-2xl tracking-tight">Create your account</CardTitle>
           <CardDescription>
-            Start organizing knowledge into collections
+            We&apos;ll email a 6-digit code to verify your address
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+          <GoogleSignInButton
+            disabled={loading}
+            onSuccess={() => navigate('/', { replace: true })}
+            onError={(message) => setError(message)}
+          />
+          <AuthDivider />
           <form className="space-y-4" onSubmit={onSubmit}>
-            {error && (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -64,6 +80,7 @@ export default function RegisterPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                autoComplete="name"
               />
             </div>
             <div className="space-y-2">
@@ -74,6 +91,7 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
@@ -85,11 +103,12 @@ export default function RegisterPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={8}
+                autoComplete="new-password"
               />
             </div>
             <Button className="w-full" type="submit" disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? 'Creating…' : 'Create account'}
+              {loading ? 'Sending code…' : 'Continue'}
             </Button>
           </form>
           <p className="mt-6 text-center text-sm text-muted-foreground">

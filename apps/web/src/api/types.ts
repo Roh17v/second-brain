@@ -6,6 +6,14 @@ export type AuthResponse = {
   name: string
 }
 
+/** POST /api/auth/register */
+export type RegisterResponse = {
+  status: 'VERIFICATION_REQUIRED' | 'AUTHENTICATED'
+  email: string
+  message: string
+  auth: AuthResponse | null
+}
+
 export type Workspace = {
   id: string
   name: string

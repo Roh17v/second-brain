@@ -27,5 +27,10 @@ app:
   ocr:
     provider: none
   storage:
+    provider: local
     base-path: ${java.io.tmpdir}/secondbrain-test-storage
+  email:
+    provider: logging
+  google:
+    client-id:
 

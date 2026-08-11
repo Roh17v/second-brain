@@ -16,12 +16,14 @@ public class UserPrincipal implements UserDetails {
 	private final String email;
 	private final String passwordHash;
 	private final String name;
+	private final boolean emailVerified;
 
 	public UserPrincipal(User user) {
 		this.id = user.getId();
 		this.email = user.getEmail();
 		this.passwordHash = user.getPasswordHash();
 		this.name = user.getName();
+		this.emailVerified = user.isEmailVerified();
 	}
 
 	public UUID getId() {
@@ -39,7 +41,8 @@ public class UserPrincipal implements UserDetails {
 
 	@Override
 	public String getPassword() {
-		return passwordHash;
+		// Null for Google-only users — password login is rejected earlier with a clear message
+		return passwordHash != null ? passwordHash : "";
 	}
 
 	@Override
@@ -64,6 +67,6 @@ public class UserPrincipal implements UserDetails {
 
 	@Override
 	public boolean isEnabled() {
-		return true;
+		return emailVerified;
 	}
 }
