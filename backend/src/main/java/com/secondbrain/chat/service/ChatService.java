@@ -62,6 +62,7 @@ public class ChatService {
 	private final DocumentRepository documentRepository;
 	private final LlmClient llmClient;
 	private final RagPromptBuilder promptBuilder;
+	private final ContextualQueryService contextualQueryService;
 	private final TransactionTemplate transactionTemplate;
 	private final ObjectMapper objectMapper;
 	private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
@@ -75,6 +76,7 @@ public class ChatService {
 			DocumentRepository documentRepository,
 			LlmClient llmClient,
 			RagPromptBuilder promptBuilder,
+			ContextualQueryService contextualQueryService,
 			PlatformTransactionManager transactionManager,
 			ObjectMapper objectMapper
 	) {
@@ -86,6 +88,7 @@ public class ChatService {
 		this.documentRepository = documentRepository;
 		this.llmClient = llmClient;
 		this.promptBuilder = promptBuilder;
+		this.contextualQueryService = contextualQueryService;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 		this.objectMapper = objectMapper;
 	}
@@ -277,13 +280,46 @@ public class ChatService {
 			conversation.setTitle(title);
 		}
 
+		// Prior turns only (before this message) — used for history-aware retrieval
+		List<ChatMessage> priorMessages =
+				messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
+
 		ChatMessage userMessage = messageRepository.save(
 				new ChatMessage(conversation.getId(), MessageRole.USER, userText)
 		);
 
-		List<SearchHitResponse> hits = embeddingService.search(workspaceId, userText, topK);
+		// Conversational retrieval: history-aware rewrite → multi-query + RRF when needed
+		ContextualQueryResult queryPlan = contextualQueryService.prepare(userText, priorMessages);
+		List<SearchHitResponse> hits = embeddingService.searchMulti(
+				workspaceId,
+				queryPlan.searchQueries(),
+				topK
+		);
+		log.info(
+				"RAG retrieve conversation={} method={} rewritten={} multi={} queryCount={} originalChars={} searchChars={} hits={}",
+				conversationId,
+				queryPlan.method(),
+				queryPlan.rewritten(),
+				queryPlan.multiQuery(),
+				queryPlan.searchQueries().size(),
+				queryPlan.originalQuery().length(),
+				queryPlan.searchQuery().length(),
+				hits.size()
+		);
+		log.info(
+				"RAG retrieve queries original='{}' primary='{}' all={}",
+				queryPlan.originalQuery(),
+				queryPlan.searchQuery(),
+				queryPlan.searchQueries()
+		);
+
 		List<String> filenames = resolveFilenames(hits);
-		RagPromptBuilder.BuiltPrompt built = promptBuilder.build(userText, hits, filenames);
+		RagPromptBuilder.BuiltPrompt built = promptBuilder.build(
+				userText,
+				queryPlan.resolvedQuestion(),
+				hits,
+				filenames
+		);
 
 		List<ChatMessage> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
 		List<LlmMessage> llmMessages = toLlmHistory(history, built.userPrompt());
