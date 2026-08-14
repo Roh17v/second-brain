@@ -46,6 +46,9 @@ public class DocumentChunk {
 	@Column(name = "content_length", nullable = false)
 	private int contentLength;
 
+	@Column(name = "section_heading", length = 400)
+	private String sectionHeading;
+
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -60,12 +63,24 @@ public class DocumentChunk {
 			int chunkIndex,
 			String content
 	) {
+		this(documentId, workspaceId, ownerId, chunkIndex, content, null);
+	}
+
+	public DocumentChunk(
+			UUID documentId,
+			UUID workspaceId,
+			UUID ownerId,
+			int chunkIndex,
+			String content,
+			String sectionHeading
+	) {
 		this.documentId = documentId;
 		this.workspaceId = workspaceId;
 		this.ownerId = ownerId;
 		this.chunkIndex = chunkIndex;
 		this.content = content;
 		this.contentLength = content.length();
+		this.sectionHeading = sectionHeading;
 	}
 
 	@PrePersist
@@ -99,6 +114,10 @@ public class DocumentChunk {
 
 	public int getContentLength() {
 		return contentLength;
+	}
+
+	public String getSectionHeading() {
+		return sectionHeading;
 	}
 
 	public Instant getCreatedAt() {

@@ -9,6 +9,7 @@ public record DocumentChunkResponse(
 		int chunkIndex,
 		String content,
 		int contentLength,
+		String sectionHeading,
 		Instant createdAt
 ) {
 }

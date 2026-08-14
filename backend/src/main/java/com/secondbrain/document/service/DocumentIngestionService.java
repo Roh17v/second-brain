@@ -17,12 +17,14 @@ import com.secondbrain.document.dto.DocumentResponse;
 import com.secondbrain.document.entity.Document;
 import com.secondbrain.document.entity.DocumentChunk;
 import com.secondbrain.document.entity.DocumentStatus;
+import com.secondbrain.document.ingestion.StructuredChunk;
 import com.secondbrain.document.ingestion.TextChunker;
 import com.secondbrain.document.ingestion.TextExtractor;
 import com.secondbrain.document.mapper.DocumentMapper;
 import com.secondbrain.document.repository.DocumentChunkRepository;
 import com.secondbrain.document.repository.DocumentRepository;
 import com.secondbrain.storage.FileStorageService;
+import com.secondbrain.workspace.service.WorkspaceSearchIndexPurge;
 import com.secondbrain.workspace.service.WorkspaceService;
 
 @Service
@@ -37,6 +39,7 @@ public class DocumentIngestionService {
 	private final FileStorageService fileStorageService;
 	private final TextExtractor textExtractor;
 	private final TextChunker textChunker;
+	private final WorkspaceSearchIndexPurge searchIndexPurge;
 
 	public DocumentIngestionService(
 			DocumentRepository documentRepository,
@@ -45,7 +48,8 @@ public class DocumentIngestionService {
 			WorkspaceService workspaceService,
 			FileStorageService fileStorageService,
 			TextExtractor textExtractor,
-			TextChunker textChunker
+			TextChunker textChunker,
+			WorkspaceSearchIndexPurge searchIndexPurge
 	) {
 		this.documentRepository = documentRepository;
 		this.chunkRepository = chunkRepository;
@@ -54,6 +58,7 @@ public class DocumentIngestionService {
 		this.fileStorageService = fileStorageService;
 		this.textExtractor = textExtractor;
 		this.textChunker = textChunker;
+		this.searchIndexPurge = searchIndexPurge;
 	}
 
 	/**
@@ -99,7 +104,7 @@ public class DocumentIngestionService {
 				throw new BadRequestException("No extractable text found in document");
 			}
 
-			List<String> parts = textChunker.chunk(text);
+			List<StructuredChunk> parts = textChunker.chunkDocument(text);
 			if (parts.isEmpty()) {
 				throw new BadRequestException("Chunking produced no content");
 			}
@@ -108,41 +113,60 @@ public class DocumentIngestionService {
 			chunkRepository.deleteByDocumentId(document.getId());
 			chunkRepository.flush();
 
+			int headed = 0;
 			List<DocumentChunk> entities = new ArrayList<>(parts.size());
 			for (int i = 0; i < parts.size(); i++) {
+				var piece = parts.get(i);
+				if (piece.sectionHeading() != null && !piece.sectionHeading().isBlank()) {
+					headed++;
+				}
 				entities.add(new DocumentChunk(
 						document.getId(),
 						document.getWorkspaceId(),
 						document.getOwnerId(),
 						i,
-						parts.get(i)
+						piece.content(),
+						piece.sectionHeading()
 				));
 			}
 			chunkRepository.saveAll(entities);
 
-			// Chunking done — not searchable until embeddings finish (pipeline sets READY).
+			if (searchIndexPurge.discardChunksIfNotSearchable(workspaceId, document.getId())) {
+				return documentMapper.toResponse(document);
+			}
+
+			// Status-only update so a concurrent soft-delete is not overwritten.
+			int updated = documentRepository.updateStatusIfNotDeleted(
+					document.getId(),
+					DocumentStatus.EMBEDDING,
+					null
+			);
+			if (updated == 0) {
+				chunkRepository.deleteByDocumentId(document.getId());
+				return documentMapper.toResponse(document);
+			}
 			document.setStatus(DocumentStatus.EMBEDDING);
 			document.setFailureReason(null);
-			Document saved = documentRepository.save(document);
 
 			log.info(
-					"Document {} processed: {} chunks (size={}, overlap={}) → EMBEDDING",
+					"Document {} processed: {} chunks (headed={}, size={}, overlap={}) → EMBEDDING",
 					document.getId(),
 					parts.size(),
+					headed,
 					TextChunker.DEFAULT_CHUNK_SIZE,
 					TextChunker.DEFAULT_CHUNK_OVERLAP
 			);
 
-			return documentMapper.toResponse(saved);
+			return documentMapper.toResponse(document);
 		}
 		catch (RuntimeException ex) {
-			document.setStatus(DocumentStatus.FAILED);
 			String reason = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
 			if (reason.length() > 900) {
 				reason = reason.substring(0, 900);
 			}
+			documentRepository.updateStatusIfNotDeleted(document.getId(), DocumentStatus.FAILED, reason);
+			document.setStatus(DocumentStatus.FAILED);
 			document.setFailureReason(reason);
-			documentRepository.save(document);
 			throw ex;
 		}
 	}
@@ -161,6 +185,7 @@ public class DocumentIngestionService {
 						chunk.getChunkIndex(),
 						chunk.getContent(),
 						chunk.getContentLength(),
+						chunk.getSectionHeading(),
 						chunk.getCreatedAt()
 				))
 				.toList();
