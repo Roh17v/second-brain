@@ -21,10 +21,16 @@ public class WorkspaceService {
 
 	private final WorkspaceRepository workspaceRepository;
 	private final WorkspaceMapper workspaceMapper;
+	private final WorkspaceSearchIndexPurge searchIndexPurge;
 
-	public WorkspaceService(WorkspaceRepository workspaceRepository, WorkspaceMapper workspaceMapper) {
+	public WorkspaceService(
+			WorkspaceRepository workspaceRepository,
+			WorkspaceMapper workspaceMapper,
+			WorkspaceSearchIndexPurge searchIndexPurge
+	) {
 		this.workspaceRepository = workspaceRepository;
 		this.workspaceMapper = workspaceMapper;
+		this.searchIndexPurge = searchIndexPurge;
 	}
 
 	@Transactional
@@ -81,6 +87,8 @@ public class WorkspaceService {
 		Workspace workspace = requireOwnedWorkspace(id);
 		workspace.softDelete();
 		workspaceRepository.save(workspace);
+		// Drop chunks + embeddings so they cannot be retrieved after delete.
+		searchIndexPurge.purge(id);
 	}
 
 	/**

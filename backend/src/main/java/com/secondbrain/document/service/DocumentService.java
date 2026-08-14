@@ -19,6 +19,7 @@ import com.secondbrain.document.dto.DocumentResponse;
 import com.secondbrain.document.entity.Document;
 import com.secondbrain.document.entity.DocumentStatus;
 import com.secondbrain.document.mapper.DocumentMapper;
+import com.secondbrain.document.repository.DocumentChunkRepository;
 import com.secondbrain.document.repository.DocumentRepository;
 import com.secondbrain.security.SecurityUtils;
 import com.secondbrain.security.UserPrincipal;
@@ -36,6 +37,7 @@ public class DocumentService {
 	private static final long MAX_FILE_BYTES = 20L * 1024 * 1024;
 
 	private final DocumentRepository documentRepository;
+	private final DocumentChunkRepository chunkRepository;
 	private final DocumentMapper documentMapper;
 	private final WorkspaceService workspaceService;
 	private final FileStorageService fileStorageService;
@@ -43,12 +45,14 @@ public class DocumentService {
 
 	public DocumentService(
 			DocumentRepository documentRepository,
+			DocumentChunkRepository chunkRepository,
 			DocumentMapper documentMapper,
 			WorkspaceService workspaceService,
 			FileStorageService fileStorageService,
 			DocumentIngestionPipeline documentIngestionPipeline
 	) {
 		this.documentRepository = documentRepository;
+		this.chunkRepository = chunkRepository;
 		this.documentMapper = documentMapper;
 		this.workspaceService = workspaceService;
 		this.fileStorageService = fileStorageService;
@@ -173,6 +177,7 @@ public class DocumentService {
 				.orElseThrow(() -> new ResourceNotFoundException("Document not found: " + documentId));
 		document.softDelete();
 		documentRepository.save(document);
+		chunkRepository.deleteByDocumentId(documentId);
 	}
 
 	private void cleanupFailedUpload(Document document) {
