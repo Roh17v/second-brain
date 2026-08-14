@@ -287,7 +287,7 @@ export default function ChatPage() {
               ))}
               {conversations.length === 0 && (
                 <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                  Create a conversation to start asking.
+                  No conversations yet.
                 </p>
               )}
             </div>
@@ -301,7 +301,7 @@ export default function ChatPage() {
             <CardTitle className="text-base">Chat</CardTitle>
             {model && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Streaming · model <Badge variant="secondary">{model}</Badge>
+                Model <Badge variant="secondary">{model}</Badge>
               </p>
             )}
           </div>
@@ -340,7 +340,7 @@ export default function ChatPage() {
                       ) : sending && m.role === 'ASSISTANT' ? (
                         <span className="inline-flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Thinking…
+                          Generating…
                         </span>
                       ) : null}
                       {m.citations?.length > 0 && (
@@ -372,7 +372,7 @@ export default function ChatPage() {
 
               <form className="flex gap-2" onSubmit={onSend}>
                 <Input
-                  placeholder="Ask about your knowledge…"
+                  placeholder="Ask a question…"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={sending}

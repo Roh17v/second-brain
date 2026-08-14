@@ -61,8 +61,7 @@ export function SessionExpiredOverlay({ onContinue }: Props) {
             Session expired
           </CardTitle>
           <CardDescription id="session-expired-desc">
-            For your security, your sign-in session has ended. You will be taken
-            to the login page in a moment.
+            Your session has ended. You will be redirected to sign in.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

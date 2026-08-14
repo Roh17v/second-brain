@@ -57,7 +57,7 @@ export default function RegisterPage() {
           </div>
           <CardTitle className="text-2xl tracking-tight">Create your account</CardTitle>
           <CardDescription>
-            We&apos;ll email a 6-digit code to verify your address
+            We&apos;ll send a 6-digit code to verify your email.
           </CardDescription>
         </CardHeader>
         <CardContent>

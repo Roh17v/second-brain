@@ -35,7 +35,7 @@ function statusLabel(status: string) {
     case 'EMBEDDING':
       return 'Embedding…'
     case 'READY':
-      return 'Ready for chat'
+      return 'Ready'
     case 'FAILED':
       return 'Failed'
     default:
@@ -101,7 +101,7 @@ export default function DocumentsPage() {
             <FileUp className="h-4 w-4 text-primary" />
             Upload document
           </CardTitle>
-          <CardDescription>PDF, images, TXT, or Markdown · max 20MB</CardDescription>
+          <CardDescription>PDF, images, TXT, or Markdown. Max 20 MB.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onUpload}>
@@ -124,8 +124,7 @@ export default function DocumentsPage() {
               Upload
             </Button>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              After upload we automatically extract text (OCR if needed), chunk, and embed
-              in the background. You can keep chatting with docs already marked Ready.
+              Files are processed in the background. Ready documents can be used in chat.
             </p>
           </form>
         </CardContent>
@@ -135,7 +134,7 @@ export default function DocumentsPage() {
         <CardHeader>
           <CardTitle className="text-base">Files in this collection</CardTitle>
           <CardDescription>
-            {readyCount} ready for chat
+            {readyCount} ready
             {pendingCount > 0 ? ` · ${pendingCount} processing` : ''}
           </CardDescription>
         </CardHeader>
@@ -201,8 +200,8 @@ export default function DocumentsPage() {
 function PipelineSteps({ status }: { status: string }) {
   const steps = [
     { key: 'UPLOADED', label: 'Queued' },
-    { key: 'PROCESSING', label: 'Extract & chunk' },
-    { key: 'EMBEDDING', label: 'Embed' },
+    { key: 'PROCESSING', label: 'Processing' },
+    { key: 'EMBEDDING', label: 'Indexing' },
   ]
   const order = ['UPLOADED', 'PROCESSING', 'EMBEDDING', 'READY']
   const current = order.indexOf(status)

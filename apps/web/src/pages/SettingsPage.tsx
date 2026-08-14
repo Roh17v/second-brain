@@ -1,5 +1,4 @@
 import { AppShell } from '@/components/layout/AppShell'
-import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -12,9 +11,9 @@ import { useTheme, type ThemeMode } from '@/theme/ThemeProvider'
 import { Monitor, Moon, Sun } from 'lucide-react'
 
 const themes: { id: ThemeMode; label: string; icon: typeof Sun; hint: string }[] = [
-  { id: 'light', label: 'Light', icon: Sun, hint: 'Clean paper-like UI' },
-  { id: 'dark', label: 'Dark', icon: Moon, hint: 'Low glare for long sessions' },
-  { id: 'system', label: 'System', icon: Monitor, hint: 'Follow OS preference' },
+  { id: 'light', label: 'Light', icon: Sun, hint: 'Light background' },
+  { id: 'dark', label: 'Dark', icon: Moon, hint: 'Dark background' },
+  { id: 'system', label: 'System', icon: Monitor, hint: 'Match device setting' },
 ]
 
 export default function SettingsPage() {
@@ -23,13 +22,13 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Settings"
-      subtitle="Appearance and future model preferences. Providers wire up next."
+      subtitle="Appearance."
     >
       <div className="mx-auto max-w-2xl space-y-6">
         <Card className="shadow-soft">
           <CardHeader>
             <CardTitle className="text-base">Theme</CardTitle>
-            <CardDescription>Notion-like light, calm dark, or system.</CardDescription>
+            <CardDescription>Choose how SecondBrain looks.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             {themes.map(({ id, label, icon: Icon, hint }) => (
@@ -49,22 +48,6 @@ export default function SettingsPage() {
                 <span className="text-xs text-muted-foreground">{hint}</span>
               </button>
             ))}
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-soft opacity-90">
-          <CardHeader>
-            <CardTitle className="text-base">Models (coming soon)</CardTitle>
-            <CardDescription>
-              LLM, embeddings, and OCR providers will be selectable here. Today they are
-              configured on the server (Ollama + Mistral OCR).
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>LLM · Embeddings · OCR — UI placeholders only.</p>
-            <Button variant="outline" size="sm" disabled>
-              Configure providers
-            </Button>
           </CardContent>
         </Card>
       </div>

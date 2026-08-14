@@ -162,8 +162,8 @@ export default function ForgotPasswordPage() {
           <CardDescription>
             {step === 'email'
               ? isSetPassword
-                ? 'We will email a code so you can add a password (e.g. if you signed up with Google).'
-                : 'Enter your email. We will send a code to reset or set your password.'
+                ? 'We’ll email a code so you can add a password.'
+                : 'Enter your email and we’ll send a verification code.'
               : (
                 <>
                   Enter the code

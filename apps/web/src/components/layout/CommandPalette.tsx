@@ -121,7 +121,7 @@ export function CommandPalette({ open, onOpenChange, extraItems = [] }: Props) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Search your brain"
+        aria-label="Search"
         className="relative z-10 w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-lift"
       >
         <div className="flex items-center gap-2 border-b border-border px-4">
@@ -130,7 +130,7 @@ export function CommandPalette({ open, onOpenChange, extraItems = [] }: Props) {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your brain…"
+            placeholder="Search collections and pages…"
             className="h-12 w-full bg-transparent text-sm text-foreground outline-none ring-0 ring-offset-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           <button
@@ -145,7 +145,7 @@ export function CommandPalette({ open, onOpenChange, extraItems = [] }: Props) {
         <div className="max-h-[50vh] overflow-auto p-2">
           {items.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              No matches. Try a collection name or page.
+              No matches.
             </p>
           ) : (
             groups.map((group) => {

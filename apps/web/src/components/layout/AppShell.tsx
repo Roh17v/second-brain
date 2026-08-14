@@ -186,7 +186,7 @@ export function AppShell({
             className="flex h-9 max-w-md flex-1 items-center gap-2 rounded-xl border border-border bg-card px-3 text-left text-sm text-muted-foreground shadow-soft transition hover:border-primary/30 hover:text-foreground"
           >
             <Search className="h-4 w-4 shrink-0" />
-            <span className="flex-1 truncate">Search your brain…</span>
+            <span className="flex-1 truncate">Search…</span>
             <kbd className="hidden rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline">
               Ctrl K
             </kbd>

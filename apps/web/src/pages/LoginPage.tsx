@@ -71,7 +71,7 @@ export default function LoginPage() {
           </div>
           <CardTitle className="text-2xl tracking-tight">Welcome back</CardTitle>
           <CardDescription>
-            Sign in to your knowledge workspace
+            Sign in to continue
           </CardDescription>
         </CardHeader>
         <CardContent>
