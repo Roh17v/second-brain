@@ -1,8 +1,10 @@
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { repairMarkdownTables } from '@/lib/markdownTables'
 import { cn } from '@/lib/utils'
 
 /**
- * Renders LLM markdown (bold, lists, code, etc.) so raw ** markers don't show.
+ * Renders LLM markdown (bold, lists, tables, code) so raw ** markers don't show.
  */
 export function MarkdownMessage({
   content,
@@ -25,8 +27,28 @@ export function MarkdownMessage({
       )}
     >
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto rounded-xl border border-border">
+              <table className="w-full min-w-[28rem] border-collapse text-left text-xs">
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className={inverse ? 'bg-black/15' : 'bg-muted/70'}>{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th className="border-b border-border px-3 py-2 font-semibold">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="border-b border-border px-3 py-2 align-top last:border-b-0">
+              {children}
+            </td>
+          ),
+          tr: ({ children }) => <tr className="last:[&>td]:border-b-0">{children}</tr>,
           strong: ({ children }) => (
             <strong className="font-semibold">{children}</strong>
           ),
@@ -108,7 +130,7 @@ export function MarkdownMessage({
           ),
         }}
       >
-        {content}
+        {repairMarkdownTables(content)}
       </ReactMarkdown>
     </div>
   )
