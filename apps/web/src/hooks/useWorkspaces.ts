@@ -35,6 +35,22 @@ export function useCreateWorkspace() {
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stats })
+    },
+  })
+}
+
+export function useDeleteWorkspace() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (workspaceId: string) =>
+      apiRequest<void>(`/api/workspaces/${workspaceId}`, { method: 'DELETE' }, token),
+    onSuccess: (_data, workspaceId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces })
+      void queryClient.removeQueries({ queryKey: queryKeys.workspace(workspaceId) })
+      void queryClient.removeQueries({ queryKey: queryKeys.documents(workspaceId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stats })
     },
   })
 }

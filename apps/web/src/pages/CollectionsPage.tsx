@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, FolderKanban, FolderPlus, Loader2, Plus } from 'lucide-react'
+import { ArrowRight, FolderKanban, FolderPlus, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
 import type { CommandItem } from '@/components/layout/CommandPalette'
@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useCreateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
+import { DeleteCollectionDialog } from '@/components/collections/DeleteCollectionDialog'
+import { useCreateWorkspace, useDeleteWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
 
 /** Product language: Collections. API entity remains Workspace. */
 export default function CollectionsPage() {
@@ -22,11 +23,17 @@ export default function CollectionsPage() {
   const { data: workspaces = [], isLoading, isError, error: loadError } =
     useWorkspaces()
   const createWorkspace = useCreateWorkspace()
+  const deleteWorkspace = useDeleteWorkspace()
 
   const [newName, setNewName] = useState('')
   const [description, setDescription] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
@@ -42,6 +49,23 @@ export default function CollectionsPage() {
       setShowForm(false)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Failed to create collection')
+    }
+  }
+
+  function askDelete(workspaceId: string, name: string) {
+    setFormError(null)
+    setDeleteError(null)
+    setPendingDelete({ id: workspaceId, name })
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    setDeleteError(null)
+    try {
+      await deleteWorkspace.mutateAsync(pendingDelete.id)
+      setPendingDelete(null)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete collection')
     }
   }
 
@@ -67,7 +91,7 @@ export default function CollectionsPage() {
   return (
     <AppShell
       title="Collections"
-      subtitle="Card-based knowledge spaces — books, coding, college, work."
+      subtitle="Organize documents and chats by topic."
       commandItems={commandItems}
       actions={
         <Button size="sm" onClick={() => setShowForm((v) => !v)}>
@@ -85,7 +109,7 @@ export default function CollectionsPage() {
                 Create collection
               </CardTitle>
               <CardDescription>
-                Each collection has its own documents and chats.
+                Documents and chats stay inside this collection.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -144,7 +168,7 @@ export default function CollectionsPage() {
         ) : workspaces.length === 0 ? (
           <Card className="border-dashed p-10 text-center shadow-soft">
             <p className="text-sm text-muted-foreground">
-              No collections yet. Create one to upload notes and start chatting.
+              No collections yet. Create one to upload files and chat.
             </p>
             <Button className="mt-4" size="sm" onClick={() => setShowForm(true)}>
               <Plus className="h-4 w-4" />
@@ -154,13 +178,16 @@ export default function CollectionsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {workspaces.map((ws) => (
-              <Link key={ws.id} to={`/collections/${ws.id}/documents`} className="group">
-                <Card className="h-full shadow-soft transition group-hover:-translate-y-0.5 group-hover:shadow-lift">
+              <Card
+                key={ws.id}
+                className="relative h-full shadow-soft transition hover:-translate-y-0.5 hover:shadow-lift"
+              >
+                <Link to={`/collections/${ws.id}/documents`} className="group block">
                   <CardHeader>
                     <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
                       <FolderKanban className="h-5 w-5" />
                     </div>
-                    <CardTitle className="text-base">{ws.name}</CardTitle>
+                    <CardTitle className="text-base pr-10">{ws.name}</CardTitle>
                     <CardDescription className="line-clamp-2 min-h-10">
                       {ws.description || 'No description'}
                     </CardDescription>
@@ -169,12 +196,37 @@ export default function CollectionsPage() {
                     <span>Open</span>
                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                   </CardContent>
-                </Card>
-              </Link>
+                </Link>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 h-8 w-8 text-muted-foreground hover:text-destructive"
+                  aria-label={`Delete ${ws.name}`}
+                  disabled={deleteWorkspace.isPending}
+                  onClick={() => askDelete(ws.id, ws.name)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </Card>
             ))}
           </div>
         )}
       </div>
+
+      <DeleteCollectionDialog
+        open={pendingDelete !== null}
+        collectionName={pendingDelete?.name ?? 'this collection'}
+        pending={deleteWorkspace.isPending}
+        error={deleteError}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => {
+          if (!deleteWorkspace.isPending) {
+            setPendingDelete(null)
+            setDeleteError(null)
+          }
+        }}
+      />
     </AppShell>
   )
 }
