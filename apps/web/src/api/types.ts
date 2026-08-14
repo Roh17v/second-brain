@@ -14,6 +14,13 @@ export type RegisterResponse = {
   auth: AuthResponse | null
 }
 
+export type LibraryStats = {
+  collections: number
+  documents: number
+  indexed: number
+  chunks: number
+}
+
 export type Workspace = {
   id: string
   name: string

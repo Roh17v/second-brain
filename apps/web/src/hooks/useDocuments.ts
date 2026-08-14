@@ -49,6 +49,7 @@ export function useUploadDocument(workspaceId: string | undefined) {
       })
       // Home dashboard recent docs depend on these lists
       void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stats })
     },
   })
 }
@@ -70,6 +71,7 @@ export function useRetryDocument(workspaceId: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.documents(workspaceId),
       })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stats })
     },
   })
 }

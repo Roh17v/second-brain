@@ -25,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { useLibraryStats } from '@/hooks/useLibraryStats'
 import { useWorkspaces } from '@/hooks/useWorkspaces'
 
 type RecentDoc = Document & { collectionName: string; collectionId: string }
@@ -45,6 +46,7 @@ export default function HomePage() {
     isError: workspacesError,
     error: workspacesErr,
   } = useWorkspaces()
+  const { data: statsData, isLoading: statsLoading } = useLibraryStats()
 
   const slice = workspaces.slice(0, 8)
   const docQueries = useQueries({
@@ -103,27 +105,26 @@ export default function HomePage() {
     [workspaces],
   )
 
+  const statsBusy = loading || statsLoading
   const stats = [
     {
       label: 'Documents',
-      value: loading ? '—' : String(docCount),
+      value: statsBusy ? '—' : String(statsData?.documents ?? docCount),
       icon: FileText,
     },
     {
       label: 'Collections',
-      value: loading ? '—' : String(workspaces.length),
+      value: statsBusy ? '—' : String(statsData?.collections ?? workspaces.length),
       icon: FolderKanban,
     },
     {
       label: 'Chunks',
-      value: '—',
-      hint: 'Soon',
+      value: statsBusy ? '—' : String(statsData?.chunks ?? 0),
       icon: Sparkles,
     },
     {
       label: 'Indexed',
-      value: '—',
-      hint: 'Soon',
+      value: statsBusy ? '—' : String(statsData?.indexed ?? 0),
       icon: MessageSquare,
     },
   ]
@@ -136,7 +137,7 @@ export default function HomePage() {
             {greeting(name)}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your knowledge workspace — not another empty chat.
+            Search and chat across your documents.
           </p>
         </div>
 
@@ -147,7 +148,7 @@ export default function HomePage() {
         )}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map(({ label, value, icon: Icon, hint }) => (
+          {stats.map(({ label, value, icon: Icon }) => (
             <Card key={label} className="shadow-soft">
               <CardContent className="flex items-center gap-3 p-4">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
@@ -155,10 +156,7 @@ export default function HomePage() {
                 </span>
                 <div>
                   <p className="text-2xl font-semibold tracking-tight">{value}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {label}
-                    {hint ? ` · ${hint}` : ''}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{label}</p>
                 </div>
               </CardContent>
             </Card>
@@ -183,17 +181,17 @@ export default function HomePage() {
               {loading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading your brain…
+                  Loading…
                 </div>
               ) : recentDocs.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center">
                   <p className="text-sm text-muted-foreground">
-                    No documents yet. Create a collection and upload notes or PDFs.
+                    No documents yet. Create a collection to upload files.
                   </p>
                   <Button asChild className="mt-4" size="sm">
                     <Link to="/collections">
                       <Plus className="h-4 w-4" />
-                      Get started
+                      New collection
                     </Link>
                   </Button>
                 </div>
@@ -230,9 +228,9 @@ export default function HomePage() {
           <div className="space-y-6">
             <Card className="shadow-soft">
               <CardHeader>
-                <CardTitle className="text-base">Ask anything</CardTitle>
+                <CardTitle className="text-base">Chat</CardTitle>
                 <CardDescription>
-                  Open a collection chat to query your notes with citations.
+                  Ask questions about a collection. Answers include sources.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -254,7 +252,7 @@ export default function HomePage() {
                 ))}
                 {workspaces.length === 0 && !loading && (
                   <p className="text-sm text-muted-foreground">
-                    Create a collection first, then start chatting.
+                    Create a collection to start chatting.
                   </p>
                 )}
               </CardContent>
@@ -266,13 +264,13 @@ export default function HomePage() {
                   <Sparkles className="h-4 w-4" />
                 </span>
                 <div>
-                  <p className="text-sm font-medium">Knowledge-first</p>
+                  <p className="text-sm font-medium">Quick search</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     Press{' '}
                     <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px]">
                       Ctrl K
                     </kbd>{' '}
-                    to search. Upload scans — OCR, chunk, embed, then chat with sources.
+                    to jump to a collection or page.
                   </p>
                 </div>
               </CardContent>
