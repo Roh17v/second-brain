@@ -12,8 +12,16 @@ public interface EmbeddingClient {
 
 	/**
 	 * Creates an embedding vector for a single text (chunk or query).
+	 * Defaults to {@link EmbeddingTask#DOCUMENT}.
 	 */
 	float[] embed(String text);
+
+	/**
+	 * Same as {@link #embed(String)} with an explicit task (query vs document).
+	 */
+	default float[] embed(String text, EmbeddingTask task) {
+		return embed(text);
+	}
 
 	/**
 	 * Batch helper. Default embeds sequentially; providers may override for bulk APIs.

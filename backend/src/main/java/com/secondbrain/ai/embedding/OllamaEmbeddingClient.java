@@ -32,9 +32,19 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
 
 	@Override
 	public float[] embed(String text) {
+		return embed(text, EmbeddingTask.DOCUMENT);
+	}
+
+	@Override
+	public float[] embed(String text, EmbeddingTask task) {
 		if (text == null || text.isBlank()) {
 			throw new BadRequestException("Cannot embed empty text");
 		}
+		String prompt = EmbeddingTexts.prepare(
+				properties.getModel(),
+				text,
+				task == null ? EmbeddingTask.DOCUMENT : task
+		);
 
 		try {
 			@SuppressWarnings("unchecked")
@@ -43,7 +53,7 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
 					.contentType(MediaType.APPLICATION_JSON)
 					.body(Map.of(
 							"model", properties.getModel(),
-							"prompt", text
+							"prompt", prompt
 					))
 					.retrieve()
 					.body(Map.class);

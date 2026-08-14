@@ -43,6 +43,11 @@ public class GeminiEmbeddingClient implements EmbeddingClient {
 
 	@Override
 	public float[] embed(String text) {
+		return embed(text, EmbeddingTask.DOCUMENT);
+	}
+
+	@Override
+	public float[] embed(String text, EmbeddingTask task) {
 		if (text == null || text.isBlank()) {
 			throw new BadRequestException("Cannot embed empty text");
 		}
@@ -53,10 +58,8 @@ public class GeminiEmbeddingClient implements EmbeddingClient {
 		body.put("content", Map.of(
 				"parts", List.of(Map.of("text", text))
 		));
-		// gemini-embedding-001 supports taskType; short text ≈ query, long ≈ document chunk
-		if (model.contains("embedding-001")) {
-			body.put("taskType", text.length() < 512 ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT");
-		}
+		EmbeddingTask resolved = task == null ? EmbeddingTask.DOCUMENT : task;
+		body.put("taskType", resolved == EmbeddingTask.QUERY ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT");
 		int outDim = properties.getOutputDimensionality() > 0
 				? properties.getOutputDimensionality()
 				: properties.getDimensions();
