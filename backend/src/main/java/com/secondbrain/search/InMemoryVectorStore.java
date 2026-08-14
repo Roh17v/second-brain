@@ -55,11 +55,7 @@ public class InMemoryVectorStore implements VectorStore {
 	@Override
 	public List<ScoredChunk> similaritySearch(UUID workspaceId, float[] queryEmbedding, int topK) {
 		List<ScoredChunk> all = jdbcTemplate.query(
-				"""
-						SELECT id, document_id, chunk_index, content
-						FROM document_chunks
-						WHERE workspace_id = ?
-						""",
+				activeChunkSql(),
 				(rs, rowNum) -> {
 					UUID id = (UUID) rs.getObject("id");
 					float[] vector = embeddings.get(id);
@@ -80,6 +76,54 @@ public class InMemoryVectorStore implements VectorStore {
 				.sorted(Comparator.comparingDouble(ScoredChunk::score).reversed())
 				.limit(topK)
 				.toList();
+	}
+
+	@Override
+	public List<ScoredChunk> keywordSearch(UUID workspaceId, String query, int topK) {
+		if (query == null || query.isBlank()) {
+			return List.of();
+		}
+		List<ScoredChunk> all = jdbcTemplate.query(
+				activeChunkSql(),
+				(rs, rowNum) -> {
+					UUID id = (UUID) rs.getObject("id");
+					if (!embeddings.containsKey(id)) {
+						return new ScoredChunk(
+								id,
+								(UUID) rs.getObject("document_id"),
+								rs.getInt("chunk_index"),
+								rs.getString("content"),
+								-1
+						);
+					}
+					double score = LexicalScorer.score(query, rs.getString("content"));
+					return new ScoredChunk(
+							id,
+							(UUID) rs.getObject("document_id"),
+							rs.getInt("chunk_index"),
+							rs.getString("content"),
+							score
+					);
+				},
+				workspaceId
+		);
+
+		return all.stream()
+				.filter(c -> c.score() > 0)
+				.sorted(Comparator.comparingDouble(ScoredChunk::score).reversed())
+				.limit(topK)
+				.toList();
+	}
+
+	private static String activeChunkSql() {
+		return """
+				SELECT c.id, c.document_id, c.chunk_index, c.content
+				FROM document_chunks c
+				INNER JOIN documents d ON d.id = c.document_id
+				WHERE c.workspace_id = ?
+				  AND d.deleted_at IS NULL
+				  AND d.status = 'READY'
+				""";
 	}
 
 	private static double cosine(float[] a, float[] b) {

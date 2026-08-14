@@ -57,13 +57,24 @@ app:
     provider: ${EMBEDDING_PROVIDER:ollama}
     base-url: ${EMBEDDING_BASE_URL:${OLLAMA_BASE_URL:http://localhost:11434}}
     model: ${EMBEDDING_MODEL:nomic-embed-text}
-    # Must match model (+ re-embed all docs when this or provider changes)
+    # Must match model (+ re-embed all docs when this or provider changes).
+    # nomic-embed-text: chunks use search_document:, queries use search_query:.
     dimensions: ${EMBEDDING_DIMENSIONS:768}
     # Cloud keys (gemini). Prefer env; never commit.
     api-key: ${EMBEDDING_API_KEY:${GEMINI_API_KEY:}}
     # Matryoshka truncate (Gemini). 0 = provider default. Often 768/1536/3072.
     output-dimensionality: ${EMBEDDING_OUTPUT_DIMENSIONALITY:0}
     timeout-seconds: ${EMBEDDING_TIMEOUT_SECONDS:60}
+  search:
+    # Dense ANN + Postgres FTS, fused with RRF. false = vector-only (old behavior).
+    hybrid-enabled: ${SEARCH_HYBRID_ENABLED:true}
+    # Per-channel candidate pool before fusion / rerank.
+    candidate-k: ${SEARCH_CANDIDATE_K:20}
+    max-candidate-k: ${SEARCH_MAX_CANDIDATE_K:50}
+    # Second-stage ranker. lexical = token overlap (no extra API). identity = skip.
+    rerank-enabled: ${SEARCH_RERANK_ENABLED:true}
+    rerank-provider: ${SEARCH_RERANK_PROVIDER:lexical}
+    rerank-top-k: ${SEARCH_RERANK_TOP_K:8}
   llm:
     # ollama | gemini | groq | echo (tests only)
     provider: ${LLM_PROVIDER:ollama}

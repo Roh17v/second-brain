@@ -33,4 +33,10 @@ app:
     provider: logging
   google:
     client-id:
+  search:
+    hybrid-enabled: true
+    candidate-k: 20
+    rerank-enabled: true
+    rerank-provider: lexical
+    rerank-top-k: 8
 

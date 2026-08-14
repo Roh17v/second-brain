@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.secondbrain.ai.embedding.EmbeddingClient;
+import com.secondbrain.ai.embedding.EmbeddingTask;
 import com.secondbrain.common.exception.BadRequestException;
 import com.secondbrain.common.exception.ResourceNotFoundException;
 import com.secondbrain.document.dto.DocumentResponse;
@@ -18,6 +19,7 @@ import com.secondbrain.document.entity.DocumentStatus;
 import com.secondbrain.document.mapper.DocumentMapper;
 import com.secondbrain.document.repository.DocumentChunkRepository;
 import com.secondbrain.document.repository.DocumentRepository;
+import com.secondbrain.workspace.service.WorkspaceSearchIndexPurge;
 import com.secondbrain.workspace.service.WorkspaceService;
 
 import jakarta.annotation.PostConstruct;
@@ -29,25 +31,31 @@ public class EmbeddingService {
 
 	private final EmbeddingClient embeddingClient;
 	private final VectorStore vectorStore;
+	private final HybridRetriever hybridRetriever;
 	private final DocumentRepository documentRepository;
 	private final DocumentChunkRepository chunkRepository;
 	private final DocumentMapper documentMapper;
 	private final WorkspaceService workspaceService;
+	private final WorkspaceSearchIndexPurge searchIndexPurge;
 
 	public EmbeddingService(
 			EmbeddingClient embeddingClient,
 			VectorStore vectorStore,
+			HybridRetriever hybridRetriever,
 			DocumentRepository documentRepository,
 			DocumentChunkRepository chunkRepository,
 			DocumentMapper documentMapper,
-			WorkspaceService workspaceService
+			WorkspaceService workspaceService,
+			WorkspaceSearchIndexPurge searchIndexPurge
 	) {
 		this.embeddingClient = embeddingClient;
 		this.vectorStore = vectorStore;
+		this.hybridRetriever = hybridRetriever;
 		this.documentRepository = documentRepository;
 		this.chunkRepository = chunkRepository;
 		this.documentMapper = documentMapper;
 		this.workspaceService = workspaceService;
+		this.searchIndexPurge = searchIndexPurge;
 	}
 
 	@PostConstruct
@@ -81,9 +89,9 @@ public class EmbeddingService {
 			throw new BadRequestException("Document must be processed (chunked) before embedding. Call /process first.");
 		}
 
+		documentRepository.updateStatusIfNotDeleted(documentId, DocumentStatus.EMBEDDING, null);
 		document.setStatus(DocumentStatus.EMBEDDING);
 		document.setFailureReason(null);
-		documentRepository.save(document);
 
 		try {
 			int embeddedNow = 0;
@@ -93,16 +101,28 @@ public class EmbeddingService {
 					skipped++;
 					continue;
 				}
-				float[] vector = embeddingClient.embed(chunk.getContent());
+				float[] vector = embeddingClient.embed(chunk.getContent(), EmbeddingTask.DOCUMENT);
 				vectorStore.saveEmbedding(chunk.getId(), vector, embeddingClient.modelId());
 				embeddedNow++;
 			}
 
-			long totalEmbedded = vectorStore.countEmbeddedChunks(documentId);
+			if (searchIndexPurge.discardChunksIfNotSearchable(workspaceId, documentId)) {
+				throw new ResourceNotFoundException("Document not found: " + documentId);
+			}
+
+			int markedReady = documentRepository.updateStatusIfNotDeleted(
+					documentId,
+					DocumentStatus.READY,
+					null
+			);
+			if (markedReady == 0) {
+				chunkRepository.deleteByDocumentId(documentId);
+				throw new ResourceNotFoundException("Document not found: " + documentId);
+			}
 			document.setStatus(DocumentStatus.READY);
 			document.setFailureReason(null);
-			documentRepository.save(document);
 
+			long totalEmbedded = vectorStore.countEmbeddedChunks(documentId);
 			log.info(
 					"Document {} embeddings: created={}, skipped={}, totalEmbedded={}, model={} → READY",
 					documentId,
@@ -121,13 +141,13 @@ public class EmbeddingService {
 			);
 		}
 		catch (RuntimeException ex) {
-			document.setStatus(DocumentStatus.FAILED);
 			String reason = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
 			if (reason.length() > 900) {
 				reason = reason.substring(0, 900);
 			}
+			documentRepository.updateStatusIfNotDeleted(documentId, DocumentStatus.FAILED, reason);
+			document.setStatus(DocumentStatus.FAILED);
 			document.setFailureReason(reason);
-			documentRepository.save(document);
 			throw ex;
 		}
 	}
@@ -140,18 +160,33 @@ public class EmbeddingService {
 			throw new BadRequestException("query is required");
 		}
 		int k = topK <= 0 ? 5 : Math.min(topK, 50);
+		return hybridRetriever.retrieve(workspaceId, List.of(query.trim()), k);
+	}
 
-		float[] queryVector = embeddingClient.embed(query.trim());
-		List<ScoredChunk> scored = vectorStore.similaritySearch(workspaceId, queryVector, k);
+	/**
+	 * Multi-query + hybrid retrieval, fused with Reciprocal Rank Fusion.
+	 * <p>
+	 * Each query is searched with dense ANN and (when enabled) keyword/FTS.
+	 * Ranked lists are fused so a follow-up like "complexity for Array, Stack, Queue…"
+	 * can pull chunks for each topic, including exact tokens vectors often miss.
+	 */
+	@Transactional(readOnly = true)
+	public List<SearchHitResponse> searchMulti(UUID workspaceId, List<String> queries, int topK) {
+		workspaceService.requireOwnedWorkspace(workspaceId);
 
-		return scored.stream()
-				.map(c -> new SearchHitResponse(
-						c.chunkId(),
-						c.documentId(),
-						c.chunkIndex(),
-						c.content(),
-						c.score()
-				))
+		if (queries == null || queries.isEmpty()) {
+			throw new BadRequestException("queries are required");
+		}
+		List<String> cleaned = queries.stream()
+				.filter(q -> q != null && !q.isBlank())
+				.map(String::trim)
+				.distinct()
 				.toList();
+		if (cleaned.isEmpty()) {
+			throw new BadRequestException("queries are required");
+		}
+
+		int k = topK <= 0 ? 5 : Math.min(topK, 50);
+		return hybridRetriever.retrieve(workspaceId, cleaned, k);
 	}
 }

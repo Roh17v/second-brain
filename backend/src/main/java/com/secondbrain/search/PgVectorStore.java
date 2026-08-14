@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * PostgreSQL + pgvector implementation.
+ * PostgreSQL + pgvector implementation (dense cosine + generated tsvector FTS).
  * Active for non-test profiles (requires real Postgres with pgvector).
  */
 @Repository
@@ -39,6 +39,11 @@ public class PgVectorStore implements VectorStore {
 				ADD COLUMN IF NOT EXISTS embedding_model varchar(120)
 				""");
 
+		jdbcTemplate.execute("""
+				ALTER TABLE document_chunks
+				ADD COLUMN IF NOT EXISTS section_heading varchar(400)
+				""");
+
 		try {
 			jdbcTemplate.execute("""
 					CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
@@ -48,6 +53,27 @@ public class PgVectorStore implements VectorStore {
 		}
 		catch (Exception ex) {
 			log.warn("Could not create HNSW index yet (often fine on empty tables): {}", ex.getMessage());
+		}
+
+		try {
+			jdbcTemplate.execute("""
+					ALTER TABLE document_chunks
+					ADD COLUMN IF NOT EXISTS content_tsv tsvector
+					GENERATED ALWAYS AS (
+						setweight(to_tsvector('english', coalesce(content, '')), 'A')
+						||
+						setweight(to_tsvector('simple', coalesce(content, '')), 'B')
+					) STORED
+					""");
+			jdbcTemplate.execute("""
+					CREATE INDEX IF NOT EXISTS idx_document_chunks_content_tsv
+					ON document_chunks
+					USING GIN (content_tsv)
+					""");
+			log.info("pgvector FTS (content_tsv) ready");
+		}
+		catch (Exception ex) {
+			log.warn("Could not create chunk FTS column/index (keyword search will no-op): {}", ex.getMessage());
 		}
 
 		log.info("pgvector schema ready (dimensions={})", dimensions);
@@ -102,12 +128,15 @@ public class PgVectorStore implements VectorStore {
 		String literal = toVectorLiteral(queryEmbedding);
 		return jdbcTemplate.query(
 				"""
-						SELECT id, document_id, chunk_index, content,
-						       (1 - (embedding <=> CAST(? AS vector))) AS score
-						FROM document_chunks
-						WHERE workspace_id = ?
-						  AND embedding IS NOT NULL
-						ORDER BY embedding <=> CAST(? AS vector)
+						SELECT c.id, c.document_id, c.chunk_index, c.content,
+						       (1 - (c.embedding <=> CAST(? AS vector))) AS score
+						FROM document_chunks c
+						INNER JOIN documents d ON d.id = c.document_id
+						WHERE c.workspace_id = ?
+						  AND c.embedding IS NOT NULL
+						  AND d.deleted_at IS NULL
+						  AND d.status = 'READY'
+						ORDER BY c.embedding <=> CAST(? AS vector)
 						LIMIT ?
 						""",
 				(rs, rowNum) -> new ScoredChunk(
@@ -122,6 +151,62 @@ public class PgVectorStore implements VectorStore {
 				literal,
 				topK
 		);
+	}
+
+	@Override
+	public List<ScoredChunk> keywordSearch(UUID workspaceId, String query, int topK) {
+		if (query == null || query.isBlank()) {
+			return List.of();
+		}
+		String q = query.strip();
+		if (q.length() > 500) {
+			q = q.substring(0, 500);
+		}
+		String tsQuery = FullTextQuery.orTsQuery(q);
+		if (tsQuery.isBlank()) {
+			return List.of();
+		}
+		int k = topK <= 0 ? 5 : topK;
+		try {
+			return jdbcTemplate.query(
+					"""
+							SELECT c.id, c.document_id, c.chunk_index, c.content,
+							       ts_rank_cd(c.content_tsv, q.query) AS score
+							FROM document_chunks c
+							INNER JOIN documents d ON d.id = c.document_id
+							CROSS JOIN LATERAL (
+								SELECT NULLIF(
+									to_tsquery('english', ?) || to_tsquery('simple', ?),
+									''::tsquery
+								) AS query
+							) q
+							WHERE c.workspace_id = ?
+							  AND c.embedding IS NOT NULL
+							  AND c.content_tsv IS NOT NULL
+							  AND d.deleted_at IS NULL
+							  AND d.status = 'READY'
+							  AND q.query IS NOT NULL
+							  AND c.content_tsv @@ q.query
+							ORDER BY score DESC, c.chunk_index ASC
+							LIMIT ?
+							""",
+					(rs, rowNum) -> new ScoredChunk(
+							(UUID) rs.getObject("id"),
+							(UUID) rs.getObject("document_id"),
+							rs.getInt("chunk_index"),
+							rs.getString("content"),
+							rs.getDouble("score")
+					),
+					tsQuery,
+					tsQuery,
+					workspaceId,
+					k
+			);
+		}
+		catch (Exception ex) {
+			log.warn("Keyword/FTS search failed (dense retrieval still runs): {}", ex.getMessage());
+			return List.of();
+		}
 	}
 
 	static String toVectorLiteral(float[] embedding) {
