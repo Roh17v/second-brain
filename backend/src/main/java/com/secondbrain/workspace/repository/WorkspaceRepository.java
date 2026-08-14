@@ -13,4 +13,6 @@ public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
 	List<Workspace> findByOwnerIdAndDeletedAtIsNullOrderByCreatedAtDesc(UUID ownerId);
 
 	Optional<Workspace> findByIdAndOwnerIdAndDeletedAtIsNull(UUID id, UUID ownerId);
+
+	long countByOwnerIdAndDeletedAtIsNull(UUID ownerId);
 }
