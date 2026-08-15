@@ -18,6 +18,7 @@ import {
   useRetryDocument,
   useUploadDocument,
 } from '@/hooks/useDocuments'
+import { formatEta, isInFlight } from '@/lib/ingestEta'
 import { cn } from '@/lib/utils'
 
 function statusVariant(status: string) {
@@ -41,10 +42,6 @@ function statusLabel(status: string) {
     default:
       return status
   }
-}
-
-function isInFlight(status: string) {
-  return status === 'UPLOADED' || status === 'PROCESSING' || status === 'EMBEDDING'
 }
 
 export default function DocumentsPage() {
@@ -85,6 +82,9 @@ export default function DocumentsPage() {
 
   const readyCount = documents.filter((d: Document) => d.status === 'READY').length
   const pendingCount = documents.filter((d: Document) => isInFlight(d.status)).length
+  const activeIngestId = documents.find(
+    (d) => d.status === 'PROCESSING' || d.status === 'EMBEDDING',
+  )?.id
   const error =
     actionError ||
     (isError
@@ -169,7 +169,14 @@ export default function DocumentsPage() {
                       </p>
                     )}
                     {isInFlight(doc.status) && (
-                      <PipelineSteps status={doc.status} />
+                      <IngestProgress
+                        doc={doc}
+                        queuedBehindOther={
+                          doc.status === 'UPLOADED' &&
+                          Boolean(activeIngestId) &&
+                          activeIngestId !== doc.id
+                        }
+                      />
                     )}
                   </div>
                   {doc.status === 'FAILED' && (
@@ -193,6 +200,51 @@ export default function DocumentsPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function IngestProgress({
+  doc,
+  queuedBehindOther,
+}: {
+  doc: Document
+  queuedBehindOther: boolean
+}) {
+  const total = doc.chunkCount ?? 0
+  const done = doc.embeddedCount ?? 0
+  const eta = formatEta(doc.estimatedSecondsRemaining)
+  const showBar = doc.status === 'EMBEDDING' && total > 0
+  const pct = showBar ? Math.min(100, Math.round((done / total) * 100)) : 0
+
+  let detail: string
+  if (queuedBehindOther) {
+    detail = 'Waiting behind another file…'
+  } else if (doc.status === 'EMBEDDING' && total > 0) {
+    detail = `Indexing ${done} / ${total}${eta ? ` · ${eta}` : ''}`
+  } else if (doc.status === 'PROCESSING' || doc.status === 'UPLOADED') {
+    detail = 'Reading and splitting the file…'
+  } else {
+    detail = 'Working…'
+  }
+
+  return (
+    <div className="mt-1 space-y-1.5">
+      <PipelineSteps status={doc.status} />
+      <p className="text-xs text-muted-foreground">{detail}</p>
+      {showBar && (
+        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      {doc.emailWhenReady && (
+        <p className="text-xs text-muted-foreground">
+          We’ll email you when this is ready to chat.
+        </p>
+      )}
     </div>
   )
 }

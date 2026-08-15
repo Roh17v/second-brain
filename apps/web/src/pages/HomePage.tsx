@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/card'
 import { useLibraryStats } from '@/hooks/useLibraryStats'
 import { useWorkspaces } from '@/hooks/useWorkspaces'
+import { formatEta, isInFlight } from '@/lib/ingestEta'
 
 type RecentDoc = Document & { collectionName: string; collectionId: string }
 
@@ -60,6 +61,11 @@ export default function HomePage() {
         ),
       enabled: Boolean(token && ws.id),
       staleTime: 30_000,
+      refetchInterval: (query: { state: { data: Document[] | undefined } }) => {
+        const docs = query.state.data
+        if (docs?.some((d) => isInFlight(d.status))) return 2500
+        return false
+      },
     })),
   })
 
@@ -212,10 +218,23 @@ export default function HomePage() {
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {doc.collectionName}
+                            {isInFlight(doc.status) &&
+                            formatEta(doc.estimatedSecondsRemaining, 'short')
+                              ? ` · ${formatEta(doc.estimatedSecondsRemaining, 'short')}`
+                              : ''}
                           </p>
                         </div>
                         <Badge variant="secondary" className="shrink-0">
-                          {doc.status}
+                          {isInFlight(doc.status) && (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          )}
+                          {doc.status === 'EMBEDDING'
+                            ? 'Indexing'
+                            : doc.status === 'PROCESSING'
+                              ? 'Processing'
+                              : doc.status === 'UPLOADED'
+                                ? 'Queued'
+                                : doc.status}
                         </Badge>
                       </Link>
                     </li>

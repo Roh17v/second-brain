@@ -41,6 +41,10 @@ export type Document = {
   failureReason: string | null
   createdAt: string
   updatedAt: string
+  chunkCount?: number | null
+  embeddedCount?: number
+  estimatedSecondsRemaining?: number | null
+  emailWhenReady?: boolean
 }
 
 export type Conversation = {
