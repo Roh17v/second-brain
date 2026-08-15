@@ -74,6 +74,11 @@ public final class ConversationAnalyzer {
 		String q = currentUserMessage.trim();
 
 		if (PRONOUN_OR_DEIXIS.matcher(q).find()) {
+			// "…partition tolerance… explaining it" — "it" is same-sentence, not a follow-up.
+			int words = countWords(q);
+			if (words >= 12 && countContentTokens(q) >= 4) {
+				return RewriteDecision.no(0.86, "standalone_with_local_anaphora");
+			}
 			return RewriteDecision.yes(0.94, "pronoun_or_deixis");
 		}
 		if (CONTINUATION.matcher(q).find()) {
@@ -108,19 +113,30 @@ public final class ConversationAnalyzer {
 		if (lower.matches("(?i)^(why|how|what|when|where|who)\\??$")) {
 			return false;
 		}
-		String[] tokens = q.split("[\\s,;:!?]+");
+		int contentTokens = countContentTokens(q);
+		return contentTokens >= 1 && !PRONOUN_OR_DEIXIS.matcher(q).find();
+	}
+
+	static int countContentTokens(String q) {
+		if (q == null || q.isBlank()) {
+			return 0;
+		}
 		int contentTokens = 0;
-		for (String t : tokens) {
+		for (String t : q.split("[\\s,;:!?]+")) {
 			if (t.length() < 2) {
 				continue;
 			}
 			String tl = t.toLowerCase(Locale.ROOT);
-			if (isStopish(tl)) {
+			if (isStopish(tl) || isDeixisWord(tl)) {
 				continue;
 			}
 			contentTokens++;
 		}
-		return contentTokens >= 1 && !PRONOUN_OR_DEIXIS.matcher(q).find();
+		return contentTokens;
+	}
+
+	private static boolean isDeixisWord(String tl) {
+		return PRONOUN_OR_DEIXIS.matcher(tl).matches();
 	}
 
 	static boolean hasStrongEntity(String q) {

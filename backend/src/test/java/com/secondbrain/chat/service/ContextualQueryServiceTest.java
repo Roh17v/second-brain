@@ -165,6 +165,47 @@ class ContextualQueryServiceTest {
 	}
 
 	@Test
+	void longCapQuestionDoesNotInheritPriorCapacityMetrics() {
+		RecordingLlm llm = new RecordingLlm("SHOULD_NOT_BE_USED");
+		ContextualQueryService svc = new ContextualQueryService(llm);
+
+		ContextualQueryResult r = svc.prepare(
+				"explain me cap theoram in easy language i understand consistency and availabity "
+						+ "but partition tolerance is a little difficult give me an example while explaining it",
+				List.of(
+						user("capacity estimation of facebook?"),
+						assistant("""
+								1. Traffic Estimation
+								Total Users: 1 Billion.
+								Query Load: 7 queries per day.
+								QPS: 18,000
+								Daily Storage: 250 GB/day
+								Total RAM: 750 GB
+								Total Servers: 180
+								""")
+				)
+		);
+
+		assertFalse(r.rewritten(), r.method());
+		assertEquals(0, llm.calls);
+		assertEquals(1, r.searchQueries().size());
+		String search = r.searchQuery().toLowerCase();
+		assertTrue(search.contains("cap") || search.contains("partition"), search);
+		assertFalse(search.contains("total users"), search);
+		assertFalse(search.contains("qps"), search);
+		assertFalse(r.resolvedQuestion().toLowerCase().contains("total users"));
+	}
+
+	@Test
+	void consistencyDoesNotBecomeProsConsPrefix() {
+		assertFalse(ContextualQueryService.attributePrefix(
+				"explain consistency and partition tolerance"
+		).contains("pros"));
+		assertTrue(ContextualQueryService.attributePrefix("pros and cons of redis")
+				.contains("pros"));
+	}
+
+	@Test
 	void sanitizeRejectsLongAnswers() {
 		String longText = "x".repeat(600);
 		assertEquals(null, ContextualQueryService.sanitizeRewrite(longText, "q"));

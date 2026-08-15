@@ -40,6 +40,17 @@ class ConversationAnalyzerTest {
 	}
 
 	@Test
+	void longQuestionWithSameSentenceItIsStandalone() {
+		RewriteDecision d = ConversationAnalyzer.analyze(
+				"explain me cap theoram in easy language i understand consistency and availabity "
+						+ "but partition tolerance is a little difficult give me an example while explaining it",
+				true
+		);
+		assertFalse(d.needsRewrite(), d.reason());
+		assertEquals("standalone_with_local_anaphora", d.reason());
+	}
+
+	@Test
 	void bareWhyNeedsRewriteWithHistory() {
 		RewriteDecision d = ConversationAnalyzer.analyze("Why?", true);
 		assertTrue(d.needsRewrite());

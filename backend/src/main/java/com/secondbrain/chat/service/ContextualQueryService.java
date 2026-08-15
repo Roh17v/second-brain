@@ -76,7 +76,7 @@ public class ContextualQueryService {
 
 		List<String> entities = PriorTurnEntityExtractor.extractFromPrior(priorMessages);
 		boolean deixis = hasDeixis(original);
-		boolean listFollowUp = (deixis || isAttributeFollowUp(original)) && entities.size() >= 2;
+		boolean listFollowUp = attachesToPriorList(original, deixis) && entities.size() >= 2;
 
 		RewriteDecision decision = ConversationAnalyzer.analyze(original, hasPriorUser);
 		if (!decision.needsRewrite()) {
@@ -134,8 +134,11 @@ public class ContextualQueryService {
 			method = ContextualQueryResult.METHOD_REWRITE_FALLBACK_CONCAT;
 		}
 
-		// Deterministic entity merge: fix weak rewrites that drop the list under "these"
-		if ((deixis || isAttributeFollowUp(original)) && !entities.isEmpty()) {
+		// Only attach the prior list when this turn is a short follow-up.
+		// Long self-contained questions ("explain CAP… give me an example while
+		// explaining it") must not inherit "Total Users / QPS" from the last answer.
+		boolean attachPriorList = attachesToPriorList(original, deixis);
+		if (attachPriorList && !entities.isEmpty()) {
 			String merged = PriorTurnEntityExtractor.mergeEntitiesIntoQuery(searchBase, entities);
 			if (!merged.equalsIgnoreCase(searchBase.strip())) {
 				log.info(
@@ -157,11 +160,11 @@ public class ContextualQueryService {
 			}
 		}
 
-		String resolved = (deixis || isAttributeFollowUp(original)) && !entities.isEmpty()
+		String resolved = attachPriorList && !entities.isEmpty()
 				? PriorTurnEntityExtractor.buildResolvedQuestion(original, entities)
 				: original;
 
-		List<String> multi = listFollowUp
+		List<String> multi = listFollowUp && attachPriorList
 				? buildMultiQueries(original, searchBase, entities)
 				: List.of(searchBase);
 		if (multi.size() > 1) {
@@ -250,16 +253,28 @@ public class ContextualQueryService {
 		return out;
 	}
 
+	/** Short follow-up that is about the previous list, not a new topic. */
+	static boolean attachesToPriorList(String original, boolean deixis) {
+		if (isAttributeFollowUp(original)) {
+			return true;
+		}
+		if (!deixis || original == null) {
+			return false;
+		}
+		return original.strip().split("\\s+").length <= 12;
+	}
+
 	static String attributePrefix(String original) {
 		String o = original == null ? "" : original.strip();
 		String lower = o.toLowerCase(Locale.ROOT);
 		if (lower.contains("complex")) {
 			return "time complexity";
 		}
-		if (lower.matches("(?s).*(pros|cons|advantage|disadvantage).*")) {
+		// Word boundaries: "consistency" must not match "cons".
+		if (lower.matches("(?s).*\\b(pros|cons|advantages?|disadvantages?)\\b.*")) {
 			return "pros cons advantages disadvantages";
 		}
-		if (lower.matches("(?s).*(example|use case).*")) {
+		if (lower.matches("(?s).*\\b(examples?|use cases?)\\b.*")) {
 			return "examples use cases";
 		}
 		StringBuilder sb = new StringBuilder();
