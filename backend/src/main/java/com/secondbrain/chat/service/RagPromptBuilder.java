@@ -50,6 +50,9 @@ public class RagPromptBuilder {
 			9. Be concise and clear. Prefer structure (short paragraphs or bullets).
 			   If you use a markdown table, put EACH row on its own line (header, separator,
 			   then one row per line). Never squash a table into a single line.
+			   For classifications, taxonomies, or process flows, include one fenced
+			   mermaid block (```mermaid then graph TD or flowchart TD) with short node
+			   labels, then a brief explanation. Do not invent extra categories.
 			10. Output ONLY the final answer the user should read. Never include chain-of-thought,
 			   analysis drafts, self-checks, or XML/HTML think/reasoning tags.
 			""".stripIndent();

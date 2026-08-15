@@ -336,6 +336,11 @@ export default function ChatPage() {
                         <MarkdownMessage
                           content={m.content}
                           inverse={m.role === 'USER'}
+                          streaming={
+                            sending &&
+                            m.role === 'ASSISTANT' &&
+                            m.id === messages[messages.length - 1]?.id
+                          }
                         />
                       ) : sending && m.role === 'ASSISTANT' ? (
                         <span className="inline-flex items-center gap-2 text-muted-foreground">

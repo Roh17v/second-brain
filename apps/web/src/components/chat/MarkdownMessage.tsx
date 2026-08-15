@@ -1,20 +1,24 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { MermaidBlock } from '@/components/chat/MermaidBlock'
 import { repairMarkdownTables } from '@/lib/markdownTables'
 import { cn } from '@/lib/utils'
 
 /**
- * Renders LLM markdown (bold, lists, tables, code) so raw ** markers don't show.
+ * Renders LLM markdown (bold, lists, tables, mermaid, code) so raw ** markers don't show.
  */
 export function MarkdownMessage({
   content,
   className,
   inverse,
+  streaming,
 }: {
   content: string
   className?: string
   /** User bubble: lighter contrast on primary background */
   inverse?: boolean
+  /** Last assistant bubble still receiving tokens */
+  streaming?: boolean
 }) {
   if (!content) return null
 
@@ -83,6 +87,16 @@ export function MarkdownMessage({
             </a>
           ),
           code: ({ className: codeClass, children }) => {
+            const lang = /language-([a-z0-9+-]+)/i.exec(codeClass ?? '')?.[1]
+            if (lang === 'mermaid') {
+              return (
+                <MermaidBlock
+                  chart={String(children).replace(/\n$/, '')}
+                  inverse={inverse}
+                  streaming={streaming}
+                />
+              )
+            }
             const isBlock = Boolean(codeClass)
             if (isBlock) {
               return (
@@ -107,9 +121,7 @@ export function MarkdownMessage({
               </code>
             )
           },
-          pre: ({ children }) => (
-            <pre className="my-2 overflow-x-auto rounded-lg last:mb-0">{children}</pre>
-          ),
+          pre: ({ children }) => <>{children}</>,
           blockquote: ({ children }) => (
             <blockquote
               className={cn(

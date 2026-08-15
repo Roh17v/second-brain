@@ -32,6 +32,7 @@ class RagPromptBuilderTest {
 
 		assertTrue(built.userPrompt().contains("Question: What is X?"));
 		assertTrue(built.systemPrompt().toLowerCase().contains("ocr"));
+		assertTrue(built.systemPrompt().toLowerCase().contains("mermaid"));
 		// Full long body should not appear untruncated in prompt
 		assertFalse(built.userPrompt().contains(longBody));
 		assertTrue(built.userPrompt().contains("..."));
