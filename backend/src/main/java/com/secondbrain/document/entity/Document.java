@@ -50,6 +50,22 @@ public class Document {
 	@Column(name = "failure_reason", length = 1000)
 	private String failureReason;
 
+	/** Known after chunking. Null while still reading/OCR. */
+	@Column(name = "chunk_count")
+	private Integer chunkCount;
+
+	@Column(name = "embedded_count", nullable = false)
+	private int embeddedCount;
+
+	@Column(name = "notify_on_ready", nullable = false)
+	private boolean notifyOnReady;
+
+	@Column(name = "ready_notified_at")
+	private Instant readyNotifiedAt;
+
+	@Column(name = "processing_started_at")
+	private Instant processingStartedAt;
+
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -153,6 +169,46 @@ public class Document {
 
 	public void setFailureReason(String failureReason) {
 		this.failureReason = failureReason;
+	}
+
+	public Integer getChunkCount() {
+		return chunkCount;
+	}
+
+	public void setChunkCount(Integer chunkCount) {
+		this.chunkCount = chunkCount;
+	}
+
+	public int getEmbeddedCount() {
+		return embeddedCount;
+	}
+
+	public void setEmbeddedCount(int embeddedCount) {
+		this.embeddedCount = embeddedCount;
+	}
+
+	public boolean isNotifyOnReady() {
+		return notifyOnReady;
+	}
+
+	public void setNotifyOnReady(boolean notifyOnReady) {
+		this.notifyOnReady = notifyOnReady;
+	}
+
+	public Instant getReadyNotifiedAt() {
+		return readyNotifiedAt;
+	}
+
+	public void setReadyNotifiedAt(Instant readyNotifiedAt) {
+		this.readyNotifiedAt = readyNotifiedAt;
+	}
+
+	public Instant getProcessingStartedAt() {
+		return processingStartedAt;
+	}
+
+	public void setProcessingStartedAt(Instant processingStartedAt) {
+		this.processingStartedAt = processingStartedAt;
 	}
 
 	public Instant getCreatedAt() {

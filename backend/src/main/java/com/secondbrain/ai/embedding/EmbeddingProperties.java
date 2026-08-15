@@ -46,6 +46,12 @@ public class EmbeddingProperties {
 
 	private int timeoutSeconds = 60;
 
+	/**
+	 * Seed for remaining-time estimates (VPS CPU nomic ≈ 4500 ms / chunk).
+	 * Refined at runtime by {@code EmbedSpeedTracker}.
+	 */
+	private long estimatedMsPerChunk = 4500;
+
 	public String getProvider() {
 		return provider;
 	}
@@ -104,5 +110,13 @@ public class EmbeddingProperties {
 
 	public boolean hasApiKey() {
 		return apiKey != null && !apiKey.isBlank();
+	}
+
+	public long getEstimatedMsPerChunk() {
+		return estimatedMsPerChunk;
+	}
+
+	public void setEstimatedMsPerChunk(long estimatedMsPerChunk) {
+		this.estimatedMsPerChunk = estimatedMsPerChunk;
 	}
 }

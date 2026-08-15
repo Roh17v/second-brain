@@ -19,6 +19,8 @@ import com.secondbrain.document.entity.DocumentStatus;
 import com.secondbrain.document.mapper.DocumentMapper;
 import com.secondbrain.document.repository.DocumentChunkRepository;
 import com.secondbrain.document.repository.DocumentRepository;
+import com.secondbrain.document.service.DocumentIngestProgress;
+import com.secondbrain.document.service.IngestEta;
 import com.secondbrain.workspace.service.WorkspaceSearchIndexPurge;
 import com.secondbrain.workspace.service.WorkspaceService;
 
@@ -29,6 +31,9 @@ public class EmbeddingService {
 
 	private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
 
+	/** Transient embedder blips (timeouts, 5xx) retry this many times per chunk. */
+	static final int EMBED_ATTEMPTS = 3;
+
 	private final EmbeddingClient embeddingClient;
 	private final VectorStore vectorStore;
 	private final HybridRetriever hybridRetriever;
@@ -37,6 +42,8 @@ public class EmbeddingService {
 	private final DocumentMapper documentMapper;
 	private final WorkspaceService workspaceService;
 	private final WorkspaceSearchIndexPurge searchIndexPurge;
+	private final DocumentIngestProgress ingestProgress;
+	private final EmbedSpeedTracker embedSpeedTracker;
 
 	public EmbeddingService(
 			EmbeddingClient embeddingClient,
@@ -46,7 +53,9 @@ public class EmbeddingService {
 			DocumentChunkRepository chunkRepository,
 			DocumentMapper documentMapper,
 			WorkspaceService workspaceService,
-			WorkspaceSearchIndexPurge searchIndexPurge
+			WorkspaceSearchIndexPurge searchIndexPurge,
+			DocumentIngestProgress ingestProgress,
+			EmbedSpeedTracker embedSpeedTracker
 	) {
 		this.embeddingClient = embeddingClient;
 		this.vectorStore = vectorStore;
@@ -56,6 +65,8 @@ public class EmbeddingService {
 		this.documentMapper = documentMapper;
 		this.workspaceService = workspaceService;
 		this.searchIndexPurge = searchIndexPurge;
+		this.ingestProgress = ingestProgress;
+		this.embedSpeedTracker = embedSpeedTracker;
 	}
 
 	@PostConstruct
@@ -66,7 +77,6 @@ public class EmbeddingService {
 	/**
 	 * Embeds all chunks for a document. Requires authenticated owner (HTTP).
 	 */
-	@Transactional
 	public DocumentEmbedResponse embedDocument(UUID workspaceId, UUID documentId) {
 		workspaceService.requireOwnedWorkspace(workspaceId);
 		return embedDocumentInternal(workspaceId, documentId);
@@ -74,8 +84,9 @@ public class EmbeddingService {
 
 	/**
 	 * Same as {@link #embedDocument} without auth — for background pipeline.
+	 * Not one transaction: each chunk's vector and {@code embedded_count} commit
+	 * so the UI can poll progress.
 	 */
-	@Transactional
 	public DocumentEmbedResponse embedDocumentInternal(UUID workspaceId, UUID documentId) {
 		Document document = documentRepository
 				.findByIdAndWorkspaceIdAndDeletedAtIsNull(documentId, workspaceId)
@@ -89,32 +100,44 @@ public class EmbeddingService {
 			throw new BadRequestException("Document must be processed (chunked) before embedding. Call /process first.");
 		}
 
-		documentRepository.updateStatusIfNotDeleted(documentId, DocumentStatus.EMBEDDING, null);
+		int chunkCount = chunks.size();
+		boolean notify = IngestEta.shouldNotify(
+				chunkCount,
+				embedSpeedTracker.averageMs()
+		);
+		ingestProgress.markEmbedding(documentId, chunkCount, notify);
 		document.setStatus(DocumentStatus.EMBEDDING);
 		document.setFailureReason(null);
+		document.setChunkCount(chunkCount);
+		if (notify) {
+			document.setNotifyOnReady(true);
+		}
 
 		try {
 			int embeddedNow = 0;
 			int skipped = 0;
+			int done = 0;
 			for (DocumentChunk chunk : chunks) {
 				if (vectorStore.hasEmbedding(chunk.getId())) {
 					skipped++;
-					continue;
 				}
-				float[] vector = embeddingClient.embed(chunk.getContent(), EmbeddingTask.DOCUMENT);
-				vectorStore.saveEmbedding(chunk.getId(), vector, embeddingClient.modelId());
-				embeddedNow++;
+				else {
+					long started = System.nanoTime();
+					float[] vector = embedWithRetry(chunk.getContent());
+					vectorStore.saveEmbedding(chunk.getId(), vector, embeddingClient.modelId());
+					embedSpeedTracker.record((System.nanoTime() - started) / 1_000_000L);
+					embeddedNow++;
+				}
+				done++;
+				ingestProgress.setEmbeddedCount(documentId, done);
 			}
+			document.setEmbeddedCount(done);
 
 			if (searchIndexPurge.discardChunksIfNotSearchable(workspaceId, documentId)) {
 				throw new ResourceNotFoundException("Document not found: " + documentId);
 			}
 
-			int markedReady = documentRepository.updateStatusIfNotDeleted(
-					documentId,
-					DocumentStatus.READY,
-					null
-			);
+			int markedReady = ingestProgress.markReady(documentId);
 			if (markedReady == 0) {
 				chunkRepository.deleteByDocumentId(documentId);
 				throw new ResourceNotFoundException("Document not found: " + documentId);
@@ -141,14 +164,53 @@ public class EmbeddingService {
 			);
 		}
 		catch (RuntimeException ex) {
+			int saved = (int) vectorStore.countEmbeddedChunks(documentId);
 			String reason = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+			if (saved > 0 && chunkCount > 0) {
+				reason = "Failed after " + saved + " of " + chunkCount
+						+ " chunks. Retry starts from the beginning. " + reason;
+			}
 			if (reason.length() > 900) {
 				reason = reason.substring(0, 900);
 			}
-			documentRepository.updateStatusIfNotDeleted(documentId, DocumentStatus.FAILED, reason);
+			ingestProgress.markFailed(documentId, reason);
 			document.setStatus(DocumentStatus.FAILED);
 			document.setFailureReason(reason);
 			throw ex;
+		}
+	}
+
+	/**
+	 * One chunk. Retries transient provider errors; already-saved chunks are never undone.
+	 */
+	float[] embedWithRetry(String content) {
+		RuntimeException last = null;
+		for (int attempt = 1; attempt <= EMBED_ATTEMPTS; attempt++) {
+			try {
+				return embeddingClient.embed(content, EmbeddingTask.DOCUMENT);
+			}
+			catch (RuntimeException ex) {
+				last = ex;
+				log.warn(
+						"Embed attempt {}/{} failed: {}",
+						attempt,
+						EMBED_ATTEMPTS,
+						ex.getMessage()
+				);
+				if (attempt < EMBED_ATTEMPTS) {
+					sleepQuietly(400L * attempt);
+				}
+			}
+		}
+		throw last;
+	}
+
+	private static void sleepQuietly(long ms) {
+		try {
+			Thread.sleep(ms);
+		}
+		catch (InterruptedException ie) {
+			Thread.currentThread().interrupt();
 		}
 	}
 

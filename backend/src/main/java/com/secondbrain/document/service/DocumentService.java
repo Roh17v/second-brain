@@ -42,6 +42,7 @@ public class DocumentService {
 	private final WorkspaceService workspaceService;
 	private final FileStorageService fileStorageService;
 	private final DocumentIngestionPipeline documentIngestionPipeline;
+	private final DocumentIngestProgress ingestProgress;
 
 	public DocumentService(
 			DocumentRepository documentRepository,
@@ -49,7 +50,8 @@ public class DocumentService {
 			DocumentMapper documentMapper,
 			WorkspaceService workspaceService,
 			FileStorageService fileStorageService,
-			DocumentIngestionPipeline documentIngestionPipeline
+			DocumentIngestionPipeline documentIngestionPipeline,
+			DocumentIngestProgress ingestProgress
 	) {
 		this.documentRepository = documentRepository;
 		this.chunkRepository = chunkRepository;
@@ -57,6 +59,7 @@ public class DocumentService {
 		this.workspaceService = workspaceService;
 		this.fileStorageService = fileStorageService;
 		this.documentIngestionPipeline = documentIngestionPipeline;
+		this.ingestProgress = ingestProgress;
 	}
 
 	@Transactional
@@ -136,6 +139,11 @@ public class DocumentService {
 
 		document.setStatus(DocumentStatus.UPLOADED);
 		document.setFailureReason(null);
+		document.setChunkCount(null);
+		document.setEmbeddedCount(0);
+		document.setNotifyOnReady(false);
+		document.setReadyNotifiedAt(null);
+		document.setProcessingStartedAt(null);
 		documentRepository.save(document);
 
 		final UUID wsId = workspaceId;
@@ -156,7 +164,7 @@ public class DocumentService {
 		return documentRepository
 				.findByWorkspaceIdAndDeletedAtIsNullOrderByCreatedAtDesc(workspaceId)
 				.stream()
-				.map(documentMapper::toResponse)
+				.map(this::toPolledResponse)
 				.toList();
 	}
 
@@ -166,6 +174,11 @@ public class DocumentService {
 		Document document = documentRepository
 				.findByIdAndWorkspaceIdAndDeletedAtIsNull(documentId, workspaceId)
 				.orElseThrow(() -> new ResourceNotFoundException("Document not found: " + documentId));
+		return toPolledResponse(document);
+	}
+
+	private DocumentResponse toPolledResponse(Document document) {
+		ingestProgress.promiseEmailIfLongProcess(document);
 		return documentMapper.toResponse(document);
 	}
 

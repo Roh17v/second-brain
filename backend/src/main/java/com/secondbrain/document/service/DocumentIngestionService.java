@@ -23,6 +23,7 @@ import com.secondbrain.document.ingestion.TextExtractor;
 import com.secondbrain.document.mapper.DocumentMapper;
 import com.secondbrain.document.repository.DocumentChunkRepository;
 import com.secondbrain.document.repository.DocumentRepository;
+import com.secondbrain.search.EmbedSpeedTracker;
 import com.secondbrain.storage.FileStorageService;
 import com.secondbrain.workspace.service.WorkspaceSearchIndexPurge;
 import com.secondbrain.workspace.service.WorkspaceService;
@@ -40,6 +41,8 @@ public class DocumentIngestionService {
 	private final TextExtractor textExtractor;
 	private final TextChunker textChunker;
 	private final WorkspaceSearchIndexPurge searchIndexPurge;
+	private final DocumentIngestProgress ingestProgress;
+	private final EmbedSpeedTracker embedSpeedTracker;
 
 	public DocumentIngestionService(
 			DocumentRepository documentRepository,
@@ -49,7 +52,9 @@ public class DocumentIngestionService {
 			FileStorageService fileStorageService,
 			TextExtractor textExtractor,
 			TextChunker textChunker,
-			WorkspaceSearchIndexPurge searchIndexPurge
+			WorkspaceSearchIndexPurge searchIndexPurge,
+			DocumentIngestProgress ingestProgress,
+			EmbedSpeedTracker embedSpeedTracker
 	) {
 		this.documentRepository = documentRepository;
 		this.chunkRepository = chunkRepository;
@@ -59,6 +64,8 @@ public class DocumentIngestionService {
 		this.textExtractor = textExtractor;
 		this.textChunker = textChunker;
 		this.searchIndexPurge = searchIndexPurge;
+		this.ingestProgress = ingestProgress;
+		this.embedSpeedTracker = embedSpeedTracker;
 	}
 
 	/**
@@ -84,9 +91,15 @@ public class DocumentIngestionService {
 			throw new BadRequestException("Document file is not available for processing");
 		}
 
+		// Commit PROCESSING immediately so polls leave "Queued" during OCR.
+		ingestProgress.markProcessingStarted(document.getId());
 		document.setStatus(DocumentStatus.PROCESSING);
 		document.setFailureReason(null);
-		documentRepository.save(document);
+		document.setProcessingStartedAt(java.time.Instant.now());
+		document.setChunkCount(null);
+		document.setEmbeddedCount(0);
+		document.setNotifyOnReady(false);
+		document.setReadyNotifiedAt(null);
 
 		try {
 			String text;
@@ -135,18 +148,18 @@ public class DocumentIngestionService {
 				return documentMapper.toResponse(document);
 			}
 
-			// Status-only update so a concurrent soft-delete is not overwritten.
-			int updated = documentRepository.updateStatusIfNotDeleted(
-					document.getId(),
-					DocumentStatus.EMBEDDING,
-					null
-			);
+			boolean notify = IngestEta.shouldNotify(parts.size(), embedSpeedTracker.averageMs());
+			int updated = documentRepository.markEmbedding(document.getId(), parts.size(), notify);
 			if (updated == 0) {
 				chunkRepository.deleteByDocumentId(document.getId());
 				return documentMapper.toResponse(document);
 			}
 			document.setStatus(DocumentStatus.EMBEDDING);
 			document.setFailureReason(null);
+			document.setChunkCount(parts.size());
+			if (notify) {
+				document.setNotifyOnReady(true);
+			}
 
 			log.info(
 					"Document {} processed: {} chunks (headed={}, size={}, overlap={}) → EMBEDDING",
@@ -164,7 +177,7 @@ public class DocumentIngestionService {
 			if (reason.length() > 900) {
 				reason = reason.substring(0, 900);
 			}
-			documentRepository.updateStatusIfNotDeleted(document.getId(), DocumentStatus.FAILED, reason);
+			ingestProgress.markFailed(document.getId(), reason);
 			document.setStatus(DocumentStatus.FAILED);
 			document.setFailureReason(reason);
 			throw ex;

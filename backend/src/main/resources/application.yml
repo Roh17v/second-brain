@@ -65,6 +65,8 @@ app:
     # Matryoshka truncate (Gemini). 0 = provider default. Often 768/1536/3072.
     output-dimensionality: ${EMBEDDING_OUTPUT_DIMENSIONALITY:0}
     timeout-seconds: ${EMBEDDING_TIMEOUT_SECONDS:60}
+    # Seed for ingest ETA. VPS Ollama/nomic ≈ 4.5s/chunk.
+    estimated-ms-per-chunk: ${EMBEDDING_ESTIMATED_MS_PER_CHUNK:4500}
   search:
     # Dense ANN + Postgres FTS, fused with RRF. false = vector-only (old behavior).
     hybrid-enabled: ${SEARCH_HYBRID_ENABLED:true}
@@ -101,6 +103,7 @@ app:
     # Must be a verified sender/domain in Resend
     from: ${EMAIL_FROM:SecondBrain <noreply@rohitvermadev.in>}
     resend-base-url: ${RESEND_BASE_URL:https://api.resend.com}
+    public-base-url: ${PUBLIC_APP_URL:http://localhost:5173}
     otp-ttl-minutes: ${EMAIL_OTP_TTL_MINUTES:10}
     resend-cooldown-seconds: ${EMAIL_RESEND_COOLDOWN_SECONDS:60}
     max-otp-attempts: ${EMAIL_MAX_OTP_ATTEMPTS:5}

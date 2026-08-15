@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.secondbrain.document.entity.Document;
 import com.secondbrain.document.entity.DocumentStatus;
 import com.secondbrain.document.repository.DocumentRepository;
+import com.secondbrain.email.DocumentReadyMailer;
 import com.secondbrain.search.EmbeddingService;
 
 /**
@@ -24,15 +25,18 @@ public class DocumentIngestionPipeline {
 	private final DocumentIngestionService documentIngestionService;
 	private final EmbeddingService embeddingService;
 	private final DocumentRepository documentRepository;
+	private final DocumentReadyMailer documentReadyMailer;
 
 	public DocumentIngestionPipeline(
 			DocumentIngestionService documentIngestionService,
 			EmbeddingService embeddingService,
-			DocumentRepository documentRepository
+			DocumentRepository documentRepository,
+			DocumentReadyMailer documentReadyMailer
 	) {
 		this.documentIngestionService = documentIngestionService;
 		this.embeddingService = embeddingService;
 		this.documentRepository = documentRepository;
+		this.documentReadyMailer = documentReadyMailer;
 	}
 
 	/**
@@ -43,10 +47,12 @@ public class DocumentIngestionPipeline {
 	public void processAndEmbedAsync(UUID workspaceId, UUID documentId) {
 		log.info("Background ingestion started for document {}", documentId);
 		try {
-			// Internal methods: no SecurityContext on async threads
+			// Internal methods: no SecurityContext on async threads.
+			// Retry always re-runs process + embed from scratch.
 			documentIngestionService.processInternal(workspaceId, documentId);
 			embeddingService.embedDocumentInternal(workspaceId, documentId);
 			log.info("Background ingestion finished READY for document {}", documentId);
+			documentReadyMailer.notifyIfNeeded(documentId);
 		}
 		catch (Exception ex) {
 			log.error("Background ingestion failed for document {}: {}", documentId, ex.getMessage(), ex);
@@ -62,6 +68,7 @@ public class DocumentIngestionPipeline {
 					documentRepository.save(doc);
 				}
 			});
+			documentReadyMailer.notifyIfNeeded(documentId);
 		}
 	}
 

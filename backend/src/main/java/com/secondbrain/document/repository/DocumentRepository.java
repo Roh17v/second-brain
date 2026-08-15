@@ -50,4 +50,64 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
 			@Param("status") DocumentStatus status,
 			@Param("reason") String reason
 	);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query(value = """
+			update documents
+			set status = 'PROCESSING',
+			    failure_reason = null,
+			    processing_started_at = :startedAt,
+			    chunk_count = null,
+			    embedded_count = 0,
+			    notify_on_ready = false,
+			    ready_notified_at = null
+			where id = :id
+			  and deleted_at is null
+			""", nativeQuery = true)
+	int markProcessingStarted(@Param("id") UUID id, @Param("startedAt") Instant startedAt);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query(value = """
+			update documents
+			set status = 'EMBEDDING',
+			    failure_reason = null,
+			    chunk_count = :chunkCount,
+			    notify_on_ready = (notify_on_ready or :notifyOnReady)
+			where id = :id
+			  and deleted_at is null
+			""", nativeQuery = true)
+	int markEmbedding(
+			@Param("id") UUID id,
+			@Param("chunkCount") int chunkCount,
+			@Param("notifyOnReady") boolean notifyOnReady
+	);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update Document d
+			set d.embeddedCount = :embeddedCount
+			where d.id = :id
+			  and d.deletedAt is null
+			""")
+	int updateEmbeddedCount(@Param("id") UUID id, @Param("embeddedCount") int embeddedCount);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update Document d
+			set d.notifyOnReady = true
+			where d.id = :id
+			  and d.deletedAt is null
+			  and d.notifyOnReady = false
+			""")
+	int markNotifyOnReady(@Param("id") UUID id);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update Document d
+			set d.readyNotifiedAt = :at
+			where d.id = :id
+			  and d.deletedAt is null
+			  and d.readyNotifiedAt is null
+			""")
+	int markReadyNotified(@Param("id") UUID id, @Param("at") Instant at);
 }

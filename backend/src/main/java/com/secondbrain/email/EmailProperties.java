@@ -17,6 +17,9 @@ public class EmailProperties {
 
 	private String resendBaseUrl = "https://api.resend.com";
 
+	/** Public SPA origin for links in transactional mail. */
+	private String publicBaseUrl = "http://localhost:5173";
+
 	/** OTP validity window. */
 	private int otpTtlMinutes = 10;
 
@@ -84,5 +87,13 @@ public class EmailProperties {
 
 	public boolean hasApiKey() {
 		return apiKey != null && !apiKey.isBlank();
+	}
+
+	public String getPublicBaseUrl() {
+		return publicBaseUrl;
+	}
+
+	public void setPublicBaseUrl(String publicBaseUrl) {
+		this.publicBaseUrl = publicBaseUrl;
 	}
 }

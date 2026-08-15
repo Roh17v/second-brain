@@ -15,6 +15,10 @@ public record DocumentResponse(
 		DocumentStatus status,
 		String failureReason,
 		Instant createdAt,
-		Instant updatedAt
+		Instant updatedAt,
+		Integer chunkCount,
+		int embeddedCount,
+		Integer estimatedSecondsRemaining,
+		boolean emailWhenReady
 ) {
 }
